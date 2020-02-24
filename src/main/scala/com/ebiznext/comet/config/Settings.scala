@@ -90,12 +90,19 @@ object Settings extends StrictLogging {
   )
 
   final case class Audit(
-    path: String,
-    active: Boolean,
-    index: String,
-    options: Map[String, String],
-    maxErrors: Int
-  )
+                          path: String,
+                          active: Boolean,
+                          index: String,
+                          options: Map[String, String],
+                          maxErrors: Int
+                        )
+
+  final case class Jdbc(
+                          uri: String,
+                          user: String,
+                          password: String,
+                          driver: String
+                        )
 
   final case class Lock(path: String, metricsTimeout: Long, ingestionTimeout: Long)
 
@@ -133,6 +140,7 @@ object Settings extends StrictLogging {
     airflow: Airflow,
     elasticsearch: Elasticsearch,
     hadoop: Map[String, String],
+    jdbc: Map[String, Jdbc],
     atlas: Atlas,
     privacy: Privacy,
     fileSystem: Option[String]
