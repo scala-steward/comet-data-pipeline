@@ -117,7 +117,7 @@ object Versions {
   val gcs = "hadoop3-2.0.1"
   val hadoopbq = "hadoop3-1.0.0"
   val bq = "1.103.0"
-  val hadoop = "3.2.0"
+  val hadoop = "3.2.1"
 }
 
 object Resolvers {
