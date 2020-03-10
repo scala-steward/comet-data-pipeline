@@ -2,7 +2,7 @@ import Dependencies._
 import sbt.internal.util.complete.DefaultParsers
 import sbtrelease.ReleasePlugin.autoImport.ReleaseTransformations._
 import sbtrelease.Version
-import sbtrelease.Version.Bump.{Minor, Next}
+import sbtrelease.Version.Bump.Next
 
 name := "comet"
 
@@ -41,8 +41,8 @@ libraryDependencies := {
       case Some((2, scalaMajor)) if scalaMajor == 11 => jackson211
     }
   }
-  
-  dependencies ++ spark ++ jackson
+
+  dependencies ++ spark ++ jackson ++ scalaReflection(scalaVersion.value)
 }
 
 Common.enableCometAliases
@@ -128,16 +128,6 @@ val writeNextVersion =
       }
     }
   )
-
-// Shade it or else bigquery wont work because spark comes with an older version of google common.
-assemblyShadeRules in assembly := Seq(
-  ShadeRule
-    .rename(
-      "com.google.cloud.hadoop.io.bigquery.**" -> "shadeio.@1",
-      "com.google.common.**"                   -> "shadebase.@1"
-    )
-    .inAll
-)
 
 assemblyMergeStrategy in assembly := {
   case PathList("META-INF", xs @ _*) => MergeStrategy.discard
