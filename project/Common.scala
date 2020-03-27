@@ -95,10 +95,10 @@ object Versions {
   val spark211 = "2.1.0"
   val spark211_240 = "2.4.5"
   val spark212 = "2.4.5"
-  val scalatest = "3.0.8"
+  val scalatest = "3.1.1"
   val springBoot = "2.0.6.RELEASE"
   val typesafeConfig = "1.2.1"
-  val okhttp = "3.14.7"
+  val okhttp = "4.4.1"
   val scalaLogging = "3.9.2"
   val logback = "1.2.3"
   val slf4j = "1.7.21"
@@ -108,16 +108,18 @@ object Versions {
   val log4s = "1.3.3"
   val betterFiles = "3.8.0"
   val jackson211 = "2.7.9"
-  val jackson212 = "2.9.10.3"  
+  val jackson212 = "2.9.10"
   val configs = "0.4.4"
-  val esHadoop = "7.5.2"
+  val esHadoop = "7.6.1"
   val scopt = "4.0.0-RC2"
-  val sttp = "1.5.19"
-//  val gcs = "hadoop2-2.0.0"
+  val sttp = "1.7.2"
   val gcs = "hadoop3-2.0.1"
   val hadoopbq = "hadoop3-1.0.0"
   val bq = "1.103.0"
   val hadoop = "3.2.0"
+  val h2 = "1.4.200" // Test only
+  val poi = "4.1.2"
+  val scalate = "1.9.5"
 }
 
 object Resolvers {
@@ -127,5 +129,7 @@ object Resolvers {
   val allResolvers = Seq(
     typeSafe
   )
+
+  val googleCloudBigDataMavenRepo = "https://repo1.maven.org/maven2/com/google/cloud/bigdataoss"
 
 }

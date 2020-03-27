@@ -24,7 +24,7 @@ import java.sql.Timestamp
 import java.time.Instant
 
 import com.ebiznext.comet.config.Settings
-import com.ebiznext.comet.schema.handlers.StorageHandler
+import com.ebiznext.comet.schema.handlers.{SchemaHandler, StorageHandler}
 import com.ebiznext.comet.schema.model.Rejection.{ColInfo, ColResult, RowInfo, RowResult}
 import com.ebiznext.comet.schema.model._
 import org.apache.hadoop.fs.Path
@@ -49,7 +49,8 @@ class DsvIngestionJob(
   val schema: Schema,
   val types: List[Type],
   val path: List[Path],
-  val storageHandler: StorageHandler
+  val storageHandler: StorageHandler,
+  val schemaHandler: SchemaHandler
 )(implicit val settings: Settings)
     extends IngestionJob {
 
@@ -106,10 +107,10 @@ class DsvIngestionJob(
   def loadDataSet(): Try[DataFrame] = {
     try {
       val df = session.read
-        .format("com.databricks.spark.csv")
         .option("header", metadata.isWithHeader().toString)
         .option("inferSchema", value = false)
         .option("delimiter", metadata.getSeparator())
+        .option("multiLine", metadata.getMultiline())
         .option("quote", metadata.getQuote())
         .option("escape", metadata.getEscape())
         .option("parserLib", "UNIVOCITY")
