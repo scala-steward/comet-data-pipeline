@@ -27,16 +27,17 @@ import com.ebiznext.comet.job.bqload.{BigQueryLoadConfig, BigQueryLoadJob}
 import com.ebiznext.comet.job.index.{IndexConfig, IndexJob}
 import com.ebiznext.comet.job.infer.{InferConfig, InferSchema}
 import com.ebiznext.comet.job.ingest._
+import com.ebiznext.comet.job.jdbcload.{JdbcLoadConfig, JdbcLoadJob}
 import com.ebiznext.comet.job.metrics.{MetricsConfig, MetricsJob}
 import com.ebiznext.comet.job.transform.AutoTask
 import com.ebiznext.comet.schema.handlers.{LaunchHandler, SchemaHandler, StorageHandler}
 import com.ebiznext.comet.schema.model.Format._
 import com.ebiznext.comet.schema.model._
 import com.ebiznext.comet.utils.Utils
+import com.google.cloud.bigquery.{Schema => BQSchema}
 import com.typesafe.scalalogging.StrictLogging
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.SparkSession
-import com.google.cloud.bigquery.{Schema => BQSchema}
 
 import scala.util.{Failure, Success, Try}
 
@@ -252,33 +253,54 @@ class IngestionWorkflow(
     logger.info(
       s"Ingesting domain: ${domain.name} with schema: ${schema.name} on file: $ingestingPath with metadata $metadata"
     )
-    val ingestionResult = Try(metadata.getFormat() match {
+    val ingestionResult: Try[SparkSession] = Try(metadata.getFormat() match {
       case DSV =>
-        new DsvIngestionJob(domain, schema, schemaHandler.types, ingestingPath, storageHandler)
-          .run()
+        new DsvIngestionJob(
+          domain,
+          schema,
+          schemaHandler.types,
+          ingestingPath,
+          storageHandler,
+          schemaHandler
+        ).run().get
       case SIMPLE_JSON =>
         new SimpleJsonIngestionJob(
           domain,
           schema,
           schemaHandler.types,
           ingestingPath,
-          storageHandler
-        ).run()
+          storageHandler,
+          schemaHandler
+        ).run().get
       case JSON =>
-        new JsonIngestionJob(domain, schema, schemaHandler.types, ingestingPath, storageHandler)
-          .run()
-      case POSITION =>
-        new PositionIngestionJob(domain, schema, schemaHandler.types, ingestingPath, storageHandler)
-          .run()
-      case CHEW =>
-        ChewerJob.run(
-          s"${settings.comet.chewerPrefix}.${domain.name}.${schema.name}",
+        new JsonIngestionJob(
           domain,
           schema,
           schemaHandler.types,
           ingestingPath,
-          storageHandler
-        )
+          storageHandler,
+          schemaHandler
+        ).run().get
+      case POSITION =>
+        new PositionIngestionJob(
+          domain,
+          schema,
+          schemaHandler.types,
+          ingestingPath,
+          storageHandler,
+          schemaHandler
+        ).run().get
+      case CHEW =>
+        ChewerJob
+          .run(
+            s"${settings.comet.chewerPrefix}.${domain.name}.${schema.name}",
+            domain,
+            schema,
+            schemaHandler.types,
+            ingestingPath,
+            storageHandler
+          )
+          .get
 
       case _ =>
         throw new Exception("Should never happen")
@@ -332,10 +354,21 @@ class IngestionWorkflow(
     * Successively run each task of a job
     *
     * @param jobname : job name as defined in the YML file.
+    * @param argParams : sql parameters to pass to SQL statements.
     */
-  def autoJob(jobname: String): Unit = {
+  def autoJobRun(jobname: String, argParams: Option[String] = None): Unit = {
     val job = schemaHandler.jobs(jobname)
-    autoJob(job)
+    val parameters: Option[Map[String, String]] = argParams
+      .map {
+        _.replaceAll("\\s", "")
+          .split(Array(',', '='))
+          .grouped(2)
+          .map {
+            case Array(k, v) => k -> v
+          }
+          .toMap
+      }
+    autoJob(job, parameters)
   }
 
   /**
@@ -343,7 +376,7 @@ class IngestionWorkflow(
     *
     * @param job : job as defined in the YML file.
     */
-  def autoJob(job: AutoJobDesc): Unit = {
+  def autoJob(job: AutoJobDesc, sqlParameters: Option[Map[String, String]]): Unit = {
     job.tasks.foreach { task =>
       val action = new AutoTask(
         job.name,
@@ -353,7 +386,8 @@ class IngestionWorkflow(
         job.udf,
         job.views,
         task,
-        storageHandler
+        storageHandler,
+        sqlParameters
       )
       action.run() match {
         case Success(_) =>
@@ -361,7 +395,7 @@ class IngestionWorkflow(
             case Some(IndexSink.ES) if settings.comet.elasticsearch.active =>
               index(job, task)
             case Some(IndexSink.BQ) =>
-              val (createDisposition, writeDisposition) = Utils.getBQDisposition(task.write)
+              val (createDisposition, writeDisposition) = Utils.getDBDisposition(task.write)
               bqload(
                 BigQueryLoadConfig(
                   sourceFile = Left(task.getTargetPath(job.getArea()).toString),
@@ -386,7 +420,7 @@ class IngestionWorkflow(
   }
 
   def index(config: IndexConfig): Try[SparkSession] = {
-    new IndexJob(config, settings.storageHandler).run()
+    new IndexJob(config, storageHandler, schemaHandler).run()
   }
 
   def bqload(
@@ -396,8 +430,13 @@ class IngestionWorkflow(
     new BigQueryLoadJob(config, maybeSchema).run()
   }
 
+  def jdbcload(config: JdbcLoadConfig): Try[SparkSession] = {
+    val loadJob = new JdbcLoadJob(config)
+    loadJob.run()
+  }
+
   def atlas(config: AtlasConfig): Unit = {
-    new AtlasJob(config, settings.storageHandler).run()
+    new AtlasJob(config, storageHandler).run()
   }
 
   /**
@@ -408,7 +447,7 @@ class IngestionWorkflow(
   def metric(cliConfig: MetricsConfig): Unit = {
     //Lookup for the domain given as prompt arguments, if is found then find the given schema in this domain
     val cmdArgs = for {
-      domain <- settings.schemaHandler.getDomain(cliConfig.domain)
+      domain <- schemaHandler.getDomain(cliConfig.domain)
       schema <- domain.schemas.find(_.name == cliConfig.schema)
     } yield (domain, schema)
 
@@ -419,7 +458,8 @@ class IngestionWorkflow(
           domain,
           schema,
           stage,
-          storageHandler
+          storageHandler,
+          schemaHandler
         ).run()
       }
       case None => logger.error("The domain or schema you specified doesn't exist! ")
