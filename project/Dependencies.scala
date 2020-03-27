@@ -85,9 +85,11 @@ object Dependencies {
     "org.apache.spark" %% "spark-mllib" % Versions.spark212 % "provided"
   )
 
+  val gcsConnectorShadedJar =
+    s"${Resolvers.googleCloudBigDataMavenRepo}/gcs-connector/${Versions.gcs}/gcs-connector-${Versions.gcs}-shaded.jar"
 
-  val gcsConnectorShadedJar = s"${Resolvers.googleCloudBigDataMavenRepo}/gcs-connector/${Versions.gcs}/gcs-connector-${Versions.gcs}-shaded.jar"
-  val gcpBigQueryConnectorShadedJar = s"${Resolvers.googleCloudBigDataMavenRepo}/bigquery-connector/${Versions.hadoopbq}/bigquery-connector-${Versions.hadoopbq}-shaded.jar"
+  val gcpBigQueryConnectorShadedJar =
+    s"${Resolvers.googleCloudBigDataMavenRepo}/bigquery-connector/${Versions.hadoopbq}/bigquery-connector-${Versions.hadoopbq}-shaded.jar"
 
   val gcp = Seq(
     "com.google.cloud.bigdataoss" % "gcs-connector-shaded" % s"${Versions.gcs}-shaded" from gcsConnectorShadedJar exclude ("javax.jms", "jms") exclude ("com.sun.jdmk", "jmxtools") exclude ("com.sun.jmx", "jmxri") excludeAll (jacksonExclusions: _*),
@@ -120,7 +122,7 @@ object Dependencies {
 
   val azure = Seq(
     "org.apache.hadoop" % "hadoop-azure" % "3.2.1" % "provided" excludeAll (jacksonExclusions: _*),
-    "com.microsoft.azure" % "azure-storage" % "8.6.0" % "provided" excludeAll (jacksonExclusions: _*)
+    "com.microsoft.azure" % "azure-storage" % "8.6.2" % "provided" excludeAll (jacksonExclusions: _*)
   )
 
   val hadoop = Seq(
@@ -131,10 +133,18 @@ object Dependencies {
     "org.apache.hadoop" % "hadoop-client" % Versions.hadoop % "provided" excludeAll (jacksonExclusions: _*)
   )
 
+  val excelClientApi = Seq(
+    "org.apache.poi" % "poi-ooxml" % Versions.poi
+  )
+
   val h2 = Seq(
     "com.h2database" % "h2" % Versions.h2 % Test
   )
-  val dependencies = logging ++ typedConfigs ++ okhttp ++ betterfiles ++ scalaTest ++ scopt ++ hadoop ++ esHadoop ++
-    sttp ++ gcp ++ azure ++ h2 // ++ atlas
 
+  val scalate = Seq(
+    "org.scalatra.scalate" %% "scalate-core" % Versions.scalate
+  )
+
+  val dependencies = scalate ++ logging ++ typedConfigs ++ okhttp ++ betterfiles ++ scalaTest ++ scopt ++ hadoop ++ esHadoop ++
+  sttp ++ gcp ++ azure ++ h2 ++ excelClientApi // ++ atlas
 }

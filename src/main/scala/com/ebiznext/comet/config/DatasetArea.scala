@@ -102,6 +102,14 @@ object DatasetArea {
   def rejected(domain: String)(implicit settings: Settings): Path =
     path(domain, settings.comet.area.rejected)
 
+  def metrics(domain: String, schema: String)(implicit settings: Settings): Path = {
+    val path = settings.comet.metrics.path
+    new Path(
+      path
+        .replace("{domain}", domain)
+        .replace("{schema}", schema)
+    )
+  }
   /**
     * Default target folder for autojobs applied to datasets in this domain
     *
@@ -212,7 +220,9 @@ final class StorageAreaSerializer extends JsonSerializer[StorageArea] {
 }
 final class StorageAreaDeserializer extends JsonDeserializer[StorageArea] {
   override def deserialize(jp: JsonParser, ctx: DeserializationContext): StorageArea = {
-    val settings = ctx.getAttribute(classOf[Settings]).asInstanceOf[Settings]
+    val settings = ctx
+      .findInjectableValue("com.ebiznext.comet.config.Settings", null, null)
+      .asInstanceOf[Settings]
     require(settings != null, "the DeserializationContext lacks a Settings instance")
 
     val value = jp.readValueAs[String](classOf[String])

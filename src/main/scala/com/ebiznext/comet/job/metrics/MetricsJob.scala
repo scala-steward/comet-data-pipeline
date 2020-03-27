@@ -44,15 +44,11 @@ class MetricsJob(
     * @param path : path where metrics are stored
     * @return : path where the metrics for the specified schema are stored
     */
-  def getMetricsPath(path: String): Path = {
-    new Path(
-      path
-        .replace("{domain}", domain.name)
-        .replace("{schema}", schema.name)
-    )
+  def metricsPath(path: String): Path = {
+    DatasetArea.metrics(domain.name, schema.name)
   }
 
-  def getLockPath(path: String): Path = {
+  def lockPath(path: String): Path = {
     new Path(
       settings.comet.lock.path,
       "metrics" + path
@@ -198,14 +194,24 @@ root
     )
 
     val listDiscAttrName: List[String] =
-      List("category", "countDistinct", "countByCategory", "frequencies", "missingValuesDiscrete")
+      List("countDistinct", "catCountFreq", "missingValuesDiscrete")
     val discreteSchema = StructType(
       Array(
         StructField("attribute", StringType, false),
-        StructField("category", ArrayType(StringType), false),
         StructField("countDistinct", LongType, false),
-        StructField("countByCategory", ArrayType(MapType(StringType, LongType)), false),
-        StructField("frequencies", ArrayType(MapType(StringType, DoubleType)), false),
+        StructField(
+          "catCountFreq",
+          ArrayType(
+            StructType(
+              Array(
+                StructField("category", StringType, false),
+                StructField("count", LongType, false),
+                StructField("frequency", DoubleType, false)
+              )
+            )
+          ),
+          false
+        ),
         StructField("missingValuesDiscrete", LongType, false),
         StructField("cometMetric", StringType, false)
       )
@@ -225,10 +231,8 @@ root
       "median",
       "percentile75",
       "missingValues",
-      "category",
       "countDistinct",
-      "countByCategory",
-      "frequencies",
+      "catCountFreq",
       "missingValuesDiscrete"
     )
     val sortSelectCol: List[String] = List(
@@ -247,10 +251,8 @@ root
       "percentile25",
       "median",
       "percentile75",
-      "category",
       "countDistinct",
-      "countByCategory",
-      "frequencies",
+      "catCountFreq",
       "missingValuesDiscrete",
       "count",
       "cometTime",
@@ -327,7 +329,7 @@ root
     logger.info("Continuous Attributes -> " + continAttrs.mkString(","))
     val discreteOps: List[DiscreteMetric] = Metrics.discreteMetrics
     val continuousOps: List[ContinuousMetric] = Metrics.continuousMetrics
-    val savePath: Path = getMetricsPath(settings.comet.metrics.path)
+    val savePath: Path = metricsPath(settings.comet.metrics.path)
     val count = dataUse.count()
     val discreteDataset = Metrics.computeDiscretMetric(dataUse, discAttrs, discreteOps)
     val continuousDataset = Metrics.computeContinuousMetric(dataUse, continAttrs, continuousOps)
@@ -344,9 +346,9 @@ root
 
     val combinedResult = allMetricsDfMaybe match {
       case Some(allMetricsDf) =>
-        val lockPath = getLockPath(settings.comet.metrics.path)
+        val lockedPath = lockPath(settings.comet.metrics.path)
         val waitTimeMillis = settings.comet.lock.metricsTimeout
-        val locker = new FileLock(lockPath, storageHandler)
+        val locker = new FileLock(lockedPath, storageHandler)
 
         val metricsResult = locker.tryExclusively(waitTimeMillis) {
           save(allMetricsDf, savePath)
