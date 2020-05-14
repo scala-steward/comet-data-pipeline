@@ -3,17 +3,52 @@ package com.ebiznext.comet
 import java.sql.{DriverManager, ResultSet, SQLException, Timestamp}
 import java.time.Instant
 
-import com.ebiznext.comet
 import com.ebiznext.comet.config.Settings
-import com.ebiznext.comet.job.ingest.{AuditLog, RejectedRecord}
+import com.ebiznext.comet.job.ingest.{AuditLog, MetricRecord, RejectedRecord}
 import org.scalatest.Assertion
 
 import scala.annotation.tailrec
 import scala.collection.immutable
+import scala.language.implicitConversions
 import scala.util.Random
+
+object ResultSetScala {
+
+  case class ResultSetExtra(rs: ResultSet) extends AnyVal {
+
+    private def getFooOption[T](columnIndex: Int, getFoo: Int => T): Option[T] = {
+      val l = getFoo(columnIndex)
+      if (rs.wasNull()) None else Some(l)
+    }
+
+    private def getFooOption[T](columnLabel: String, getFoo: String => T): Option[T] = {
+      val l = getFoo(columnLabel)
+      if (rs.wasNull()) None else Some(l)
+    }
+
+    def getLongOption(columnLabel: String): Option[Long] =
+      getFooOption(columnLabel, rs.getLong(_: String))
+
+    def getLongOption(columnIndex: Int): Option[Long] =
+      getFooOption(columnIndex, rs.getLong(_: Int))
+
+    def getDoubleOption(columnLabel: String): Option[Double] =
+      getFooOption(columnLabel, rs.getDouble(_: String))
+
+    def getDoubleOption(columnIndex: Int): Option[Double] =
+      getFooOption(columnIndex, rs.getDouble(_: Int))
+
+    def getStringOption(columnLabel: String): Option[String] = Option(rs.getString(columnLabel))
+    def getStringOption(columnIndex: Int): Option[String] = Option(rs.getString(columnIndex))
+  }
+
+  implicit def toResultSetExtra(rs: ResultSet): ResultSetExtra = ResultSetExtra(rs)
+}
 
 trait JdbcChecks {
   this: TestHelper =>
+  import ResultSetScala._
+
   val TestStart: Timestamp = Timestamp.from(Instant.now)
 
   protected def expectingJdbcDataset[T: ItemStandardizer](
@@ -79,18 +114,24 @@ trait JdbcChecks {
     private val FakeDuration = Random.nextInt(5000)
 
     override def standardize(item: AuditLog): AuditLog = {
-      item.copy(timestamp = TestStart, duration = FakeDuration) // We pretend the AuditLog entry has been generated exactly at TestStart.
+      item.copy(
+        timestamp = TestStart,
+        duration = FakeDuration
+      ) // We pretend the AuditLog entry has been generated exactly at TestStart.
     }
   }
 
   implicit object RejectedRecordStandardizer extends ItemStandardizer[RejectedRecord] {
+
     override def standardize(item: RejectedRecord): RejectedRecord = {
-      item.copy(timestamp = TestStart) // We pretend the RejectedRecord entry has been generated exactly at TestStart.
+      item.copy(timestamp =
+        TestStart
+      ) // We pretend the RejectedRecord entry has been generated exactly at TestStart.
     }
   }
 
-  protected def expectingRejections(jdbcName: String, values: RejectedRecord*)(
-    implicit settings: Settings
+  protected def expectingRejections(jdbcName: String, values: RejectedRecord*)(implicit
+    settings: Settings
   ): Assertion = {
     val testEnd: Timestamp = Timestamp.from(Instant.now)
 
@@ -117,8 +158,8 @@ trait JdbcChecks {
 
   }
 
-  protected def expectingAudit(jdbcName: String, values: AuditLog*)(
-    implicit settings: Settings
+  protected def expectingAudit(jdbcName: String, values: AuditLog*)(implicit
+    settings: Settings
   ): Assertion = {
     val testEnd: Timestamp = Timestamp.from(Instant.now)
 
@@ -150,6 +191,53 @@ trait JdbcChecks {
       item
     }
   }
+
+  protected def expectingMetrics(jdbcName: String, values: MetricRecord*)(implicit
+    settings: Settings
+  ): Assertion = {
+    val testEnd: Timestamp = Timestamp.from(Instant.now)
+
+    val converter = MetricRecord.MetricRecordConverter()
+
+    expectingJdbcDataset(
+      jdbcName,
+      "metrics",
+      "domain" :: "schema" ::
+      "min" :: "max" :: "mean" :: "missingValues" :: "standardDev" :: "variance" :: "sum" ::
+      "skewness" :: "kurtosis" :: "percentile25" :: "median" :: "percentile75" ::
+      "countDistinct" :: "catCountFreq" :: "missingValuesDiscrete" :: "count" ::
+      "cometTime" :: "cometStage" :: Nil,
+      values.to[Vector]
+    ) { rs =>
+      val itemAsSql = MetricRecord.AsSql(
+        rs.getString("domain"),
+        rs.getString("schema"),
+        rs.getString("attribute"),
+        rs.getLongOption("min"),
+        rs.getLongOption("max"),
+        rs.getDoubleOption("mean"),
+        rs.getLongOption("missingValues"),
+        rs.getDoubleOption("standardDev"),
+        rs.getDoubleOption("variance"),
+        rs.getLongOption("sum"),
+        rs.getDoubleOption("skewness"),
+        rs.getLongOption("kurtosis"),
+        rs.getLongOption("percentile25"),
+        rs.getLongOption("median"),
+        rs.getLongOption("percentile75"),
+        rs.getLongOption("countDistinct"),
+        rs.getStringOption("catCountFreq"),
+        rs.getLongOption("missingValuesDiscrete"),
+        rs.getLong("count"),
+        rs.getLong("cometTime"),
+        rs.getString("cometStage")
+      )
+
+      val item = converter.fromSqlCompatible(itemAsSql)
+      item
+    }
+  }
+
 }
 
 trait ItemStandardizer[T] {
@@ -157,11 +245,13 @@ trait ItemStandardizer[T] {
 }
 
 trait ItemStandardizerLowPriority {
+
   implicit def identityStandardizer[T]: ItemStandardizer[T] =
     new ItemStandardizerLowPriority.IdentityStandardizer[T]()
 }
 
 object ItemStandardizerLowPriority {
+
   final class IdentityStandardizer[T]() extends ItemStandardizer[T] {
     override def standardize(value: T): T = value
   }

@@ -25,10 +25,12 @@ import java.time.LocalDateTime
 import com.ebiznext.comet.config.{Settings, StorageArea, UdfRegistration}
 import com.ebiznext.comet.schema.handlers.StorageHandler
 import com.ebiznext.comet.schema.model.AutoTaskDesc
+import com.ebiznext.comet.utils.Formatter._
 import com.ebiznext.comet.utils.SparkJob
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.{SaveMode, SparkSession}
 
+import scala.language.reflectiveCalls
 import scala.util.{Success, Try}
 
 /**
@@ -39,6 +41,7 @@ import scala.util.{Success, Try}
   * @param name        : Job Name as defined in the YML job description file
   * @param defaultArea : Where the resulting dataset is stored by default if not specified in the task
   * @param task        : Task to run
+  * @param sqlParameters : Sql Parameters to pass to SQL statements
   */
 class AutoTask(
   override val name: String,
@@ -48,7 +51,8 @@ class AutoTask(
   udf: Option[String],
   views: Option[Map[String, String]],
   task: AutoTaskDesc,
-  storageHandler: StorageHandler
+  storageHandler: StorageHandler,
+  sqlParameters: Option[Map[String, String]]
 )(implicit val settings: Settings)
     extends SparkJob {
 
@@ -57,7 +61,7 @@ class AutoTask(
       val udfInstance: UdfRegistration =
         Class
           .forName(udf)
-          .getDeclaredConstructor(Seq.empty: _*)
+          .getDeclaredConstructor()
           .newInstance()
           .asInstanceOf[UdfRegistration]
       udfInstance.register(session)
@@ -68,11 +72,18 @@ class AutoTask(
         val df = session.read.parquet(fullPath)
         df.createOrReplaceTempView(key)
     }
-    task.presql.getOrElse(Nil).foreach(session.sql)
+
+    val dataframe = sqlParameters match {
+      case Some(mapParams) =>
+        task.presql.getOrElse(Nil).foreach(req => session.sql(req.richFormat(mapParams)))
+        session.sql(task.sql.richFormat(mapParams))
+      case _ =>
+        task.presql.getOrElse(Nil).foreach(session.sql)
+        session.sql(task.sql)
+
+    }
     val targetPath = task.getTargetPath(defaultArea)
     val mergePath = s"${targetPath.toString}.merge"
-
-    val dataframe = session.sql(task.sql)
     val partitionedDF =
       partitionedDatasetWriter(
         if (coalesce) dataframe.coalesce(1) else dataframe,
@@ -125,26 +136,3 @@ class AutoTask(
     Success(session)
   }
 }
-
-/*
-name: "facturation"
-udf: "com.ebiznext.comet.external.EvolanUdf"
-format: "csv"
-coalesce: true
-views:
-  ref_client: "/trainings/jupyter/work/ebiznext/business/patrice/client"
-  ref_societe: "/trainings/jupyter/work/ebiznext/accepted/patrice/societe"
-tasks:
-  - sql: |
-      select
-        clients.INTITULE_TIERS,
-        clients.CODE_POSTAL,
-
-      from  ref_client clients
-      where
-        clients.CODE_SOCIETE in (1, 2? 3, 4)
-    domain: "factu"
-    dataset: "facturation"
-    write: "OVERWRITE"
-    area: "business"
- */

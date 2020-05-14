@@ -21,14 +21,9 @@ organizationName := "Ebiznext"
 
 scalaVersion := scala211
 
-scalacOptions ++= Seq(
-  "-deprecation",
-  "-feature"
-)
-
 organizationHomepage := Some(url("http://www.ebiznext.com"))
 
-libraryDependencies := {
+libraryDependencies ++= {
   val spark = {
     CrossVersion.partialVersion(scalaVersion.value) match {
       case Some((2, scalaMajor)) if scalaMajor == 12 => spark212
@@ -59,6 +54,12 @@ artifact in (Compile, assembly) := {
 }
 
 addArtifact(artifact in (Compile, assembly), assembly)
+
+// Builds a far JAR with embedded spark libraries and other provided libs.
+// Can be useful for running YAML generation without having a spark distribution
+commands += Command.command("assemblyWithSpark") { state =>
+  """set assembly / fullClasspath := (Compile / fullClasspath).value""" :: "assembly" :: state
+}
 
 publishTo in ThisBuild := {
   sys.env.get("GCS_BUCKET_ARTEFACTS") match {
@@ -140,6 +141,14 @@ assemblyExcludedJars in assembly := {
   //cp filter {_.data.getName.matches("hadoop-.*-2.6.5.jar")}
   Nil
 }
+
+
+assemblyShadeRules in assembly := Seq(
+  // poi needs a newer version of commons-compress (> 1.17) than the one shipped with spark (1.4)
+  ShadeRule.rename("org.apache.commons.compress.**" -> "poiShade.commons.compress.@1").inAll,
+  //shade it or else writing to bigquery wont work because spark comes with an older version of google common.
+  ShadeRule.rename("com.google.common.**" -> "shade.@0").inAll
+)
 
 // Your profile name of the sonatype account. The default is the same with the organization value
 sonatypeProfileName := "com.ebiznext"

@@ -39,10 +39,10 @@ class TypesSpec extends TestHelper {
       val stream: InputStream =
         getClass.getResourceAsStream("/quickstart/metadata/types/default.yml")
       val lines = scala.io.Source
-        .fromInputStream(stream)
-        .getLines()
-        .mkString("\n") +
-      """
+          .fromInputStream(stream)
+          .getLines()
+          .mkString("\n") +
+        """
           |  - name: "long"
           |    primitiveType: "long"
           |    pattern: "-?\\d+"
@@ -60,10 +60,10 @@ class TypesSpec extends TestHelper {
       val stream: InputStream =
         getClass.getResourceAsStream("/quickstart/metadata/types/default.yml")
       val lines = scala.io.Source
-        .fromInputStream(stream)
-        .getLines()
-        .mkString("\n") +
-      """
+          .fromInputStream(stream)
+          .getLines()
+          .mkString("\n") +
+        """
           |  - name: "frenchdouble"
           |    primitiveType: "double"
           |    pattern: "-?\\d*,{0,1}\\d+"
@@ -89,10 +89,10 @@ class TypesSpec extends TestHelper {
       val stream: InputStream =
         getClass.getResourceAsStream("/quickstart/metadata/types/default.yml")
       val lines = scala.io.Source
-        .fromInputStream(stream)
-        .getLines()
-        .mkString("\n") +
-      """
+          .fromInputStream(stream)
+          .getLines()
+          .mkString("\n") +
+        """
           |  - name: "timeinmillis"
           |    primitiveType: "timestamp"
           |    pattern: "epoch_milli"
@@ -139,5 +139,36 @@ class TypesSpec extends TestHelper {
 
     }
 
+    "Double Type with a Zone" should "be able to parse a value with a + prefix" in {
+      val stream: InputStream =
+        getClass.getResourceAsStream("/quickstart/metadata/types/default.yml")
+      val lines = scala.io.Source
+          .fromInputStream(stream)
+          .getLines()
+          .mkString("\n") +
+        """
+        |  - name: "signed_double_fr"
+        |    primitiveType: "double"
+        |    pattern: "[+,-]?\\d*\\,{0,1}\\d+"
+        |    sample: "+45.78"
+        |    zone: Fr_fr
+        |    comment: "Floating value with a sign prefix and french decimal point"
+        |""".stripMargin
+      val types = mapper.readValue(lines, classOf[Types])
+      val doubleType = types.types
+        .find(_.name == "double")
+        .get
+      doubleType.matches("+3.14") shouldBe false
+      val signedDoubleType = types.types
+        .find(_.name == "signed_double_fr")
+        .get
+      signedDoubleType.matches("+3,14") shouldBe true
+      signedDoubleType.sparkValue("+3,14") shouldBe 3.14d
+      signedDoubleType.matches("3,14") shouldBe true
+      signedDoubleType.sparkValue("3,14") shouldBe 3.14d
+      signedDoubleType.matches("-3,14") shouldBe true
+      signedDoubleType.sparkValue("-3,14") shouldBe -3.14d
+
+    }
   }
 }

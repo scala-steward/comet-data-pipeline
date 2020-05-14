@@ -102,6 +102,15 @@ object DatasetArea {
   def rejected(domain: String)(implicit settings: Settings): Path =
     path(domain, settings.comet.area.rejected)
 
+  def metrics(domain: String, schema: String)(implicit settings: Settings): Path = {
+    val path = settings.comet.metrics.path
+    new Path(
+      path
+        .replace("{domain}", domain)
+        .replace("{schema}", schema)
+    )
+  }
+
   /**
     * Default target folder for autojobs applied to datasets in this domain
     *
@@ -136,8 +145,8 @@ object DatasetArea {
     List(metadata, types, domains).foreach(storage.mkdirs)
   }
 
-  def initDomains(storage: StorageHandler, domains: Iterable[String])(
-    implicit settings: Settings
+  def initDomains(storage: StorageHandler, domains: Iterable[String])(implicit
+    settings: Settings
   ): Unit = {
     init(storage)
     domains.foreach { domain =>
@@ -178,9 +187,11 @@ object StorageArea {
   case object rejected extends StorageArea {
     def value: String = "rejected"
   }
+
   case object accepted extends StorageArea {
     def value: String = "accepted"
   }
+
   case object business extends StorageArea {
     def value: String = "business"
   }
@@ -192,6 +203,7 @@ object StorageArea {
 }
 
 final class StorageAreaSerializer extends JsonSerializer[StorageArea] {
+
   override def serialize(
     value: StorageArea,
     gen: JsonGenerator,
@@ -210,9 +222,13 @@ final class StorageAreaSerializer extends JsonSerializer[StorageArea] {
     gen.writeString(strValue)
   }
 }
+
 final class StorageAreaDeserializer extends JsonDeserializer[StorageArea] {
+
   override def deserialize(jp: JsonParser, ctx: DeserializationContext): StorageArea = {
-    val settings = ctx.getAttribute(classOf[Settings]).asInstanceOf[Settings]
+    val settings = ctx
+      .findInjectableValue("com.ebiznext.comet.config.Settings", null, null)
+      .asInstanceOf[Settings]
     require(settings != null, "the DeserializationContext lacks a Settings instance")
 
     val value = jp.readValueAs[String](classOf[String])

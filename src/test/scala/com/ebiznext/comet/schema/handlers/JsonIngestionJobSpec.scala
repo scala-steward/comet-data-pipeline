@@ -20,28 +20,20 @@
 
 package com.ebiznext.comet.schema.handlers
 
-import java.sql.{DriverManager, SQLException}
-
 import com.ebiznext.comet.config.Settings
+import com.ebiznext.comet.job.ingest.{AuditLog, MetricRecord, RejectedRecord}
 import com.ebiznext.comet.{JdbcChecks, TestHelper}
-import com.ebiznext.comet.job.ingest.{AuditLog, RejectedRecord}
 import com.typesafe.config.{Config, ConfigFactory}
-import org.apache.spark.sql.execution.datasources.json.JsonIngestionUtil
-import org.apache.spark.sql.types._
-import org.scalatest.Assertion
-
-import scala.annotation.tailrec
-import scala.util.Success
 
 abstract class JsonIngestionJobSpecBase(variant: String) extends TestHelper with JdbcChecks {
 
   def expectedAuditLogs(implicit settings: Settings): List[AuditLog]
-
-  def expectedRejectLogs(implicit settings: Settings): List[RejectedRecord]
+  def expectedRejectRecords(implicit settings: Settings): List[RejectedRecord]
+  def expectedMetricRecords(implicit settings: Settings): List[MetricRecord]
 
   def configuration: Config
 
-  ("Ingest Complex JSON " + variant) should ("should be ingested from pending to accepted, and archived ") in {
+  ("Ingest Complex JSON " + variant) should "should be ingested from pending to accepted, and archived " in {
     new WithSettings(configuration) {
 
       new SpecTrait(
@@ -57,7 +49,9 @@ abstract class JsonIngestionJobSpecBase(variant: String) extends TestHelper with
         loadPending
 
         // Check archive
-        readFileContent(cometDatasetsPath + s"/archive/${datasetDomainName}/complex.json") shouldBe loadFile(
+        readFileContent(
+          cometDatasetsPath + s"/archive/${datasetDomainName}/complex.json"
+        ) shouldBe loadTextFile(
           "/sample/json/complex.json"
         )
 
@@ -75,13 +69,15 @@ abstract class JsonIngestionJobSpecBase(variant: String) extends TestHelper with
           .count() shouldBe 0
       }
       expectingAudit("test-h2", expectedAuditLogs(settings): _*)
-      expectingRejections("test-h2", expectedRejectLogs(settings): _*)
+      expectingRejections("test-h2", expectedRejectRecords(settings): _*)
+      expectingMetrics("test-h2", expectedMetricRecords(settings): _*)
     }
   }
 }
 
 class JsonIngestionJobNoIndexNoMetricsNoAuditSpec
     extends JsonIngestionJobSpecBase("No Index, No Metrics, No Audit") {
+
   override def configuration: Config =
     ConfigFactory
       .parseString("""
@@ -92,7 +88,8 @@ class JsonIngestionJobNoIndexNoMetricsNoAuditSpec
 
   override def expectedAuditLogs(implicit settings: Settings): List[AuditLog] = Nil
 
-  override def expectedRejectLogs(implicit settings: Settings): List[RejectedRecord] = Nil
+  override def expectedRejectRecords(implicit settings: Settings): List[RejectedRecord] = Nil
+  override def expectedMetricRecords(implicit settings: Settings): List[MetricRecord] = Nil
 }
 
 class JsonIngestionJobSpecNoIndexJdbcMetricsJdbcAuditSpec
@@ -134,6 +131,9 @@ class JsonIngestionJobSpecNoIndexJdbcMetricsJdbcAuditSpec
       message = "success"
     ) :: Nil
 
-  override def expectedRejectLogs(implicit settings: Settings): List[RejectedRecord] =
+  override def expectedRejectRecords(implicit settings: Settings): List[RejectedRecord] =
     Nil
+
+  override def expectedMetricRecords(implicit settings: Settings): List[MetricRecord] =
+    Nil /* TODO: should we not get some here? At least we go to JDBC fine, as far as the schema is concerned. */
 }

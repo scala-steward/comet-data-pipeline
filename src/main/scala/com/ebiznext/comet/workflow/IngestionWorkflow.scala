@@ -25,7 +25,7 @@ import com.ebiznext.comet.config.{DatasetArea, Settings}
 import com.ebiznext.comet.job.atlas.{AtlasConfig, AtlasJob}
 import com.ebiznext.comet.job.bqload.{BigQueryLoadConfig, BigQueryLoadJob}
 import com.ebiznext.comet.job.index.{IndexConfig, IndexJob}
-import com.ebiznext.comet.job.infer.{InferConfig, InferSchema}
+import com.ebiznext.comet.job.infer.{InferSchema, InferSchemaConfig}
 import com.ebiznext.comet.job.ingest._
 import com.ebiznext.comet.job.jdbcload.{JdbcLoadConfig, JdbcLoadJob}
 import com.ebiznext.comet.job.metrics.{MetricsConfig, MetricsJob}
@@ -33,7 +33,7 @@ import com.ebiznext.comet.job.transform.AutoTask
 import com.ebiznext.comet.schema.handlers.{LaunchHandler, SchemaHandler, StorageHandler}
 import com.ebiznext.comet.schema.model.Format._
 import com.ebiznext.comet.schema.model._
-import com.ebiznext.comet.utils.Utils
+import com.ebiznext.comet.utils.{Unpacker, Utils}
 import com.google.cloud.bigquery.{Schema => BQSchema}
 import com.typesafe.scalalogging.StrictLogging
 import org.apache.hadoop.fs.Path
@@ -98,23 +98,26 @@ class IngestionWorkflow(
             storageHandler.move(file, tmpFile)
           }
         } else if (storageHandler.fs.getScheme() == "file") {
+          storageHandler.mkdirs(tmpDir)
           val tgz = new Path(prefixStr + ".tgz")
           val gz = new Path(prefixStr + ".gz")
           val zip = new Path(prefixStr + ".zip")
+          val tmpFile = Path.getPathWithoutSchemeAndAuthority(tmpDir).toString
           if (storageHandler.exists(gz)) {
             logger.info(s"Found compressed file $gz")
+
             File(Path.getPathWithoutSchemeAndAuthority(gz).toString)
-              .unGzipTo(File(tmpDir.toString))
+              .unGzipTo(File(tmpFile, File(prefixStr).name))
             storageHandler.delete(gz)
           } else if (storageHandler.exists(tgz)) {
             logger.info(s"Found compressed file $tgz")
-            File(Path.getPathWithoutSchemeAndAuthority(tgz).toString)
-              .unGzipTo(File(tmpDir.toString))
+            Unpacker
+              .unpack(File(Path.getPathWithoutSchemeAndAuthority(tgz).toString), File(tmpFile))
             storageHandler.delete(tgz)
           } else if (storageHandler.exists(zip)) {
             logger.info(s"Found compressed file $zip")
             File(Path.getPathWithoutSchemeAndAuthority(zip).toString)
-              .unzipTo(File(tmpDir.toString))
+              .unzipTo(File(tmpFile))
             storageHandler.delete(zip)
           } else {
             logger.error(s"No archive found for ack ${ackFile.toString}")
@@ -170,9 +173,9 @@ class IngestionWorkflow(
 
       // We group files with the same schema to ingest them together in a single step.
       val groupedResolved: Map[Schema, Iterable[Path]] = resolved.map {
-        case (Some(schema), path) => (schema, path)
-        case (None, _)            => throw new Exception("Should never happen")
-      } groupBy (_._1) mapValues (it => it.map(_._2))
+          case (Some(schema), path) => (schema, path)
+          case (None, _)            => throw new Exception("Should never happen")
+        } groupBy (_._1) mapValues (it => it.map(_._2))
 
       groupedResolved.foreach {
         case (schema, pendingPaths) =>
@@ -231,11 +234,11 @@ class IngestionWorkflow(
   /**
     * Ingest the file (called by the cron manager at ingestion time for a specific dataset
     *
-    * @param domainName     : domain name of the dataset
-    * @param schemaName     schema name of the dataset
-    * @param ingestingPaths : Absolute path of the file to ingest (present in the ingesting area of the domain)
     */
-  def ingest(domainName: String, schemaName: String, ingestingPaths: List[Path]): Unit = {
+  def ingest(config: IngestConfig): Unit = {
+    val domainName = config.domain
+    val schemaName = config.schema
+    val ingestingPaths = config.paths
     for {
       domain <- domains.find(_.name == domainName)
       schema <- domain.schemas.find(_.name == schemaName)
@@ -253,7 +256,7 @@ class IngestionWorkflow(
     logger.info(
       s"Ingesting domain: ${domain.name} with schema: ${schema.name} on file: $ingestingPath with metadata $metadata"
     )
-    val ingestionResult = Try(metadata.getFormat() match {
+    val ingestionResult: Try[SparkSession] = Try(metadata.getFormat() match {
       case DSV =>
         new DsvIngestionJob(
           domain,
@@ -262,7 +265,7 @@ class IngestionWorkflow(
           ingestingPath,
           storageHandler,
           schemaHandler
-        ).run()
+        ).run().get
       case SIMPLE_JSON =>
         new SimpleJsonIngestionJob(
           domain,
@@ -271,7 +274,7 @@ class IngestionWorkflow(
           ingestingPath,
           storageHandler,
           schemaHandler
-        ).run()
+        ).run().get
       case JSON =>
         new JsonIngestionJob(
           domain,
@@ -280,7 +283,7 @@ class IngestionWorkflow(
           ingestingPath,
           storageHandler,
           schemaHandler
-        ).run()
+        ).run().get
       case POSITION =>
         new PositionIngestionJob(
           domain,
@@ -289,16 +292,18 @@ class IngestionWorkflow(
           ingestingPath,
           storageHandler,
           schemaHandler
-        ).run()
+        ).run().get
       case CHEW =>
-        ChewerJob.run(
-          s"${settings.comet.chewerPrefix}.${domain.name}.${schema.name}",
-          domain,
-          schema,
-          schemaHandler.types,
-          ingestingPath,
-          storageHandler
-        )
+        ChewerJob
+          .run(
+            s"${settings.comet.chewerPrefix}.${domain.name}.${schema.name}",
+            domain,
+            schema,
+            schemaHandler.types,
+            ingestingPath,
+            storageHandler
+          )
+          .get
 
       case _ =>
         throw new Exception("Should never happen")
@@ -338,7 +343,7 @@ class IngestionWorkflow(
     )
   }
 
-  def infer(config: InferConfig) = {
+  def infer(config: InferSchemaConfig) = {
     new InferSchema(
       config.domainName,
       config.schemaName,
@@ -352,10 +357,21 @@ class IngestionWorkflow(
     * Successively run each task of a job
     *
     * @param jobname : job name as defined in the YML file.
+    * @param argParams : sql parameters to pass to SQL statements.
     */
-  def autoJob(jobname: String): Unit = {
+  def autoJobRun(jobname: String, argParams: Option[String] = None): Unit = {
     val job = schemaHandler.jobs(jobname)
-    autoJob(job)
+    val parameters: Option[Map[String, String]] = argParams
+      .map {
+        _.replaceAll("\\s", "")
+          .split(Array(',', '='))
+          .grouped(2)
+          .map {
+            case Array(k, v) => k -> v
+          }
+          .toMap
+      }
+    autoJob(job, parameters)
   }
 
   /**
@@ -363,7 +379,7 @@ class IngestionWorkflow(
     *
     * @param job : job as defined in the YML file.
     */
-  def autoJob(job: AutoJobDesc): Unit = {
+  def autoJob(job: AutoJobDesc, sqlParameters: Option[Map[String, String]]): Unit = {
     job.tasks.foreach { task =>
       val action = new AutoTask(
         job.name,
@@ -373,7 +389,8 @@ class IngestionWorkflow(
         job.udf,
         job.views,
         task,
-        storageHandler
+        storageHandler,
+        sqlParameters
       )
       action.run() match {
         case Success(_) =>

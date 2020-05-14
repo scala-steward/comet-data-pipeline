@@ -46,6 +46,7 @@ case class AuditLog(
   duration: Long,
   message: String
 ) {
+
   override def toString(): String = {
     s"""
        |jobid=$jobid
@@ -80,6 +81,7 @@ object SparkAuditLogWriter {
   )
 
   import com.google.cloud.bigquery.{Schema => BQSchema}
+
   private def bigqueryAuditSchema(): BQSchema = {
     val fields = auditCols.map { attribute =>
       Field
@@ -91,21 +93,20 @@ object SparkAuditLogWriter {
     BQSchema.of(fields: _*)
   }
 
-  def append(session: SparkSession, log: AuditLog)(
-    implicit settings: Settings
+  def append(session: SparkSession, log: AuditLog)(implicit
+    settings: Settings
   ) = {
+
+    import session.implicits._
     val lockPath = new Path(settings.comet.audit.path, s"audit.lock")
     val locker = new FileLock(lockPath, settings.storageHandler)
-    import session.implicits._
-    if (settings.comet.audit.active) {
-      locker.doExclusively() {
-        val auditPath = new Path(settings.comet.audit.path, s"ingestion-log")
-        Seq(log).toDF.write
-          .mode(SaveMode.Append)
-          .format(settings.comet.writeFormat)
-          .option("path", auditPath.toString)
-          .save()
-      }
+    locker.doExclusively() {
+      val auditPath = new Path(settings.comet.audit.path, s"ingestion-log")
+      Seq(log).toDF.write
+        .mode(SaveMode.Append)
+        .format(settings.comet.writeFormat)
+        .option("path", auditPath.toString)
+        .save()
     }
     val auditTypedRDD: RDD[AuditLog] = session.sparkContext.parallelize(Seq(log))
     val auditDF = session
