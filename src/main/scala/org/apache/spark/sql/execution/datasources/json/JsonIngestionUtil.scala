@@ -39,7 +39,9 @@ import scala.util.{Failure, Success, Try}
   *
   */
 object JsonIngestionUtil {
+
   private[this] val structFieldComparator = new Comparator[StructField] {
+
     override def compare(o1: StructField, o2: StructField): Int = {
       o1.name.compare(o2.name)
     }
@@ -101,14 +103,18 @@ object JsonIngestionUtil {
             typeComp = typeComp && errorList.isEmpty
           } else {
             // Field is present in the message but not in the schema.
-            errorList += s"""${f2.name}, ${f2.dataType.typeName}, ${context.mkString(".")}, unknown field ${f2.name} : ${f2.dataType.typeName} in context ${context
+            errorList += s"""${f2.name}, ${f2.dataType.typeName}, ${context.mkString(
+              "."
+            )}, unknown field ${f2.name} : ${f2.dataType.typeName} in context ${context
               .mkString(".")}"""
             typeComp = false
           }
         }
         while (f2Idx < fields2.length) {
           val f2 = fields2(f2Idx)
-          errorList += s"""${f2.name}, ${f2.dataType.typeName}, ${context.mkString(".")}, unknown field ${f2.name} : ${f2.dataType.typeName} in context ${context
+          errorList += s"""${f2.name}, ${f2.dataType.typeName}, ${context.mkString(
+            "."
+          )}, unknown field ${f2.name} : ${f2.dataType.typeName} in context ${context
             .mkString(".")}"""
           f2Idx += 1
         }
@@ -221,33 +227,34 @@ object JsonIngestionUtil {
   /**
     * Convert NullType to StringType and remove StructTypes with no fields
     */
-  private def canonicalizeType(tpe: DataType): Option[DataType] = tpe match {
-    case at @ ArrayType(elementType, _) =>
-      for {
-        canonicalType <- canonicalizeType(elementType)
-      } yield {
-        at.copy(canonicalType)
-      }
+  private def canonicalizeType(tpe: DataType): Option[DataType] =
+    tpe match {
+      case at @ ArrayType(elementType, _) =>
+        for {
+          canonicalType <- canonicalizeType(elementType)
+        } yield {
+          at.copy(canonicalType)
+        }
 
-    case StructType(fields) =>
-      val canonicalFields: Array[StructField] = for {
-        field <- fields
-        if field.name.length > 0
-        canonicalType <- canonicalizeType(field.dataType)
-      } yield {
-        field.copy(dataType = canonicalType)
-      }
+      case StructType(fields) =>
+        val canonicalFields: Array[StructField] = for {
+          field <- fields
+          if field.name.length > 0
+          canonicalType <- canonicalizeType(field.dataType)
+        } yield {
+          field.copy(dataType = canonicalType)
+        }
 
-      if (canonicalFields.length > 0) {
-        Some(StructType(canonicalFields))
-      } else {
-        // per SPARK-8093: empty structs should be deleted
-        None
-      }
+        if (canonicalFields.length > 0) {
+          Some(StructType(canonicalFields))
+        } else {
+          // per SPARK-8093: empty structs should be deleted
+          None
+        }
 
-    case NullType => Some(StringType)
-    case other    => Some(other)
-  }
+      case NullType => Some(StringType)
+      case other    => Some(other)
+    }
 
   private def withCorruptField(
     struct: StructType,
@@ -257,7 +264,7 @@ object JsonIngestionUtil {
       // If this given struct does not have a column used for corrupt records,
       // add this field.
       val newFields: Array[StructField] =
-      StructField(columnNameOfCorruptRecords, StringType, nullable = true) +: struct.fields
+        StructField(columnNameOfCorruptRecords, StringType, nullable = true) +: struct.fields
       // Note: other code relies on this sorting for correctness, so don't remove it!
       java.util.Arrays.sort(newFields, structFieldComparator)
       StructType(newFields)

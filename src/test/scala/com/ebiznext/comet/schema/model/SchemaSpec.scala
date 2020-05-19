@@ -41,26 +41,25 @@ class SchemaSpec extends TestHelper {
         "invalid-type", // should raise error non existent type
         Some(true),
         true,
-        Some(PrivacyLevel("MD5")) // Should raise an error. Privacy cannot be applied on types other than string
+        Some(
+          PrivacyLevel("MD5")
+        ) // Should raise an error. Privacy cannot be applied on types other than string
       )
 
       attr.checkValidity(schemaHandler) shouldBe Left(List("Invalid Type invalid-type"))
     }
 
-    "Attribute privacy" should "be applied on string type only" in {
+    "Attribute privacy" should "appliable to any type" in {
       val attr = Attribute(
         "attr",
         "long",
         Some(true),
         true,
-        Some(PrivacyLevel("MD5")) // Should raise an error. Privacy cannot be applied on types other than stringsettings = settings
+        Some(
+          PrivacyLevel("ApproxLong(20)")
+        ) // Should raise an error. Privacy cannot be applied on types other than stringsettings = settings
       )
-      attr.checkValidity(schemaHandler) shouldBe
-      Left(
-        List(
-          "Attribute Attribute(attr,long,Some(true),true,Some(MD5),None,None,None,None,None,None,None) : string is the only supported primitive type for an attribute when privacy is requested"
-        )
-      )
+      attr.checkValidity(schemaHandler) shouldBe Right(true)
     }
 
     "Sub Attribute" should "be present for struct types only" in {
@@ -69,23 +68,24 @@ class SchemaSpec extends TestHelper {
         "long",
         Some(true),
         true,
-        Some(PrivacyLevel("MD5")), // Should raise an error. Privacy cannot be applied on types other than string
+        Some(
+          PrivacyLevel("ApproxLong(20)")
+        ), // Should raise an error. Privacy cannot be applied on types other than string
         attributes = Some(List[Attribute]())
       )
       val expectedErrors = List(
-        "Attribute Attribute(attr,long,Some(true),true,Some(MD5),None,None,None,Some(List()),None,None,None) : string is the only supported primitive type for an attribute when privacy is requested",
-        "Attribute Attribute(attr,long,Some(true),true,Some(MD5),None,None,None,Some(List()),None,None,None) : Simple attributes cannot have sub-attributes",
-        "Attribute Attribute(attr,long,Some(true),true,Some(MD5),None,None,None,Some(List()),None,None,None) : when present, attributes list cannot be empty."
+        "Attribute Attribute(attr,long,Some(true),true,Some(ApproxLong(20)),None,None,None,Some(List()),None,None,None) : Simple attributes cannot have sub-attributes",
+        "Attribute Attribute(attr,long,Some(true),true,Some(ApproxLong(20)),None,None,None,Some(List()),None,None,None) : when present, attributes list cannot be empty."
       )
 
       attr.checkValidity(schemaHandler) shouldBe Left(expectedErrors)
     }
 
     "Position serialization" should "output all fields" in {
-      val yml = loadFile(s"/expected/yml/position_serialization_${versionSuffix}.yml")
+      val yml = loadTextFile(s"/expected/yml/position_serialization_${versionSuffix}.yml")
 
       val attr =
-        Attribute("hello", position = Some(Position(1, 2, Some(Trim.NONE))))
+        Attribute("hello", position = Some(Position(1, 2)))
       val writer = new StringWriter()
       mapper.writer().writeValue(writer, attr)
       logger.info("--" + writer.toString + "--")

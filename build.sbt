@@ -21,14 +21,9 @@ organizationName := "Ebiznext"
 
 scalaVersion := scala211
 
-scalacOptions ++= Seq(
-  "-deprecation",
-  "-feature"
-)
-
 organizationHomepage := Some(url("http://www.ebiznext.com"))
 
-libraryDependencies := {
+libraryDependencies ++= {
   val spark = {
     CrossVersion.partialVersion(scalaVersion.value) match {
       case Some((2, scalaMajor)) if scalaMajor == 12 => spark212
@@ -147,9 +142,12 @@ assemblyExcludedJars in assembly := {
   Nil
 }
 
-// poi needs a newer version of commons-compress (> 1.17) than the one shipped with spark (1.4)
+
 assemblyShadeRules in assembly := Seq(
-  ShadeRule.rename("org.apache.commons.compress.**" -> "poiShade.commons.compress.@1").inAll
+  // poi needs a newer version of commons-compress (> 1.17) than the one shipped with spark (1.4)
+  ShadeRule.rename("org.apache.commons.compress.**" -> "poiShade.commons.compress.@1").inAll,
+  //shade it or else writing to bigquery wont work because spark comes with an older version of google common.
+  ShadeRule.rename("com.google.common.**" -> "shade.@0").inAll
 )
 
 // Your profile name of the sonatype account. The default is the same with the organization value

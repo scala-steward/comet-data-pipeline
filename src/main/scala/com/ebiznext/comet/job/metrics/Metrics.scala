@@ -3,10 +3,16 @@ package com.ebiznext.comet.job.metrics
 import com.ebiznext.comet.utils.DataTypeEx._
 import com.typesafe.scalalogging.StrictLogging
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{DoubleType, IntegerType, LongType, StringType, StructType}
+import org.apache.spark.sql.types.{DoubleType, LongType, StringType}
 import org.apache.spark.sql.{Column, DataFrame}
 
 object Metrics extends StrictLogging {
+
+  case class MetricsDatasets(
+    continuousDF: Option[DataFrame],
+    discreteDF: Option[DataFrame],
+    frequenciesDF: Option[DataFrame]
+  )
 
   /** Case class ContinuousMetric with all corresponding Metrics
     *
@@ -292,7 +298,7 @@ object Metrics extends StrictLogging {
         "cat_count_freq",
         struct(
           col("Category").cast(StringType).as("category"),
-          col("CountDiscrete").cast(LongType).as("count"),
+          col("CountDiscrete").cast(LongType).as("countDiscrete"),
           col("Frequencies").cast(DoubleType).as("frequency")
         )
       )

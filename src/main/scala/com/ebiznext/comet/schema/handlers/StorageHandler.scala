@@ -54,6 +54,8 @@ trait StorageHandler extends StrictLogging {
 
   def write(data: String, path: Path): Unit
 
+  def listDirectories(path: Path): List[Path]
+
   def list(path: Path, extension: String = "", since: LocalDateTime = LocalDateTime.MIN): List[Path]
 
   def blockSize(path: Path): Long
@@ -80,15 +82,12 @@ trait StorageHandler extends StrictLogging {
 /**
   * HDFS Filesystem Handler
   */
-class HdfsStorageHandler(fileSystem: Option[String])(
-  implicit settings: Settings
+class HdfsStorageHandler(fileSystem: Option[String])(implicit
+  settings: Settings
 ) extends StorageHandler {
 
   val conf = new Configuration()
-  conf.set(
-    "fs.azure.account.key.hayssams.dfs.core.windows.net",
-    "fm2rEMVDBuWyEWw+NjvCZCdS20NJ4FX9eRunkXyhnakhKjaMzzFDOw/wBg2clWsVZnUDZQ+4ceSMpAR5RJvXGw=="
-  )
+
   lazy val normalizedFileSystem: Option[String] = {
     fileSystem.map { fs =>
       if (fs.endsWith(":"))
@@ -153,6 +152,21 @@ class HdfsStorageHandler(fileSystem: Option[String])(
     os.writeBytes(data)
     os.close()
   }
+
+  /**
+    * Write bytes to binary file. Used for zip / gzip input test files.
+    *
+    * @param data file content as a string
+    * @param path : Absolute file path
+    */
+  def writeBinary(data: Array[Byte], path: Path): Unit = {
+    val os: FSDataOutputStream = getOutputStream(path)
+    os.write(data, 0, data.length)
+    os.close()
+  }
+
+  def listDirectories(path: Path): List[Path] =
+    fs.listStatus(path).filter(_.isDirectory).map(_.getPath).toList
 
   /**
     * List all files in folder

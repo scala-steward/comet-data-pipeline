@@ -6,6 +6,7 @@ import java.util.regex.Pattern
 import com.ebiznext.comet.config.Settings
 import com.ebiznext.comet.schema.model._
 import org.apache.poi.ss.usermodel.{DataFormatter, Row, Workbook, WorkbookFactory}
+
 import scala.collection.JavaConverters._
 import scala.util.{Success, Try}
 
@@ -65,13 +66,17 @@ class XlsReader(path: String) {
           .map(formatter.formatCellValue)
         val identityKeysOpt = Option(row.getCell(8, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL))
           .map(formatter.formatCellValue)
+        val comment = Option(row.getCell(9, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL))
+          .map(formatter.formatCellValue)
+        val encodingOpt = Option(row.getCell(10, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL))
+          .map(formatter.formatCellValue)
 
         (nameOpt, patternOpt) match {
           case (Some(name), Some(pattern)) => {
             val metaData = Metadata(
               mode,
               format,
-              encoding = None,
+              encoding = encodingOpt,
               multiline = None,
               array = None,
               withHeader,
@@ -89,6 +94,10 @@ class XlsReader(path: String) {
                     timestamp = Some(deltaCol)
                   )
                 )
+              case (None, Some(identityKeys)) =>
+                Some(
+                  MergeOptions(key = identityKeys.split(",").toList.map(_.trim))
+                )
               case _ => None
             }
             Some(
@@ -98,7 +107,7 @@ class XlsReader(path: String) {
                 attributes = Nil,
                 Some(metaData),
                 mergeOptions,
-                None,
+                comment,
                 None,
                 None
               )
@@ -155,14 +164,14 @@ class XlsReader(path: String) {
                     case Success(v) => v - 1
                     case _          => 0
                   }
-                  val positionTrim =
-                    Option(row.getCell(11, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL))
-                      .map(formatter.formatCellValue)
-                      .map(Trim.fromString)
-                  Some(Position(positionStart, positionEnd, positionTrim))
+                  Some(Position(positionStart, positionEnd))
                 }
                 case _ => None
               }
+              val attributeTrim =
+                Option(row.getCell(11, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL))
+                  .map(formatter.formatCellValue)
+                  .map(Trim.fromString)
 
               (nameOpt, semTypeOpt) match {
                 case (Some(name), Some(semType)) =>
@@ -176,10 +185,11 @@ class XlsReader(path: String) {
                       comment = commentOpt,
                       rename = renameOpt,
                       metricType = metricType,
-                      attributes = None,
+                      trim = attributeTrim,
                       position = positionOpt,
                       default = defaultOpt,
-                      tags = None
+                      tags = None,
+                      attributes = None
                     )
                   )
                 case _ => None

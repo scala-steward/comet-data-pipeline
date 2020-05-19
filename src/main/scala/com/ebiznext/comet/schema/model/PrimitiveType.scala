@@ -21,7 +21,7 @@
 package com.ebiznext.comet.schema.model
 
 import java.sql.Timestamp
-import java.text.NumberFormat
+import java.text.{DecimalFormat, NumberFormat}
 import java.time._
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAccessor
@@ -122,7 +122,10 @@ object PrimitiveType {
       else {
         val locale = zone.split('_')
         val currentLocale: Locale = new Locale(locale(0), locale(1))
-        val numberFormatter = NumberFormat.getNumberInstance(currentLocale)
+        val numberFormatter =
+          NumberFormat.getNumberInstance(currentLocale).asInstanceOf[DecimalFormat]
+        if (str.head == '+')
+          numberFormatter.setPositivePrefix("+")
         numberFormatter.parse(str).doubleValue()
       }
     }
@@ -141,20 +144,13 @@ object PrimitiveType {
 
   object boolean extends PrimitiveType("boolean") {
 
-    def matches(str: String, pattern: String): Boolean = {
-      if (pattern.indexOf("<-TF->") >= 0) {
-        val tf = pattern.split("<-TF->")
-        Pattern
-          .compile(tf(0), Pattern.MULTILINE)
-          .matcher(str)
-          .matches() ||
-        Pattern
-          .compile(tf(1), Pattern.MULTILINE)
-          .matcher(str)
-          .matches()
-      } else {
-        throw new Exception(s"Invalid pattern $pattern for type boolean and value $str")
-      }
+    def matches(str: String, truePattern: Pattern, falsePattern: Pattern): Boolean = {
+      truePattern
+        .matcher(str)
+        .matches() ||
+      falsePattern
+        .matcher(str)
+        .matches()
     }
 
     def fromString(str: String, pattern: String, zone: String): Any = {

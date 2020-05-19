@@ -58,6 +58,8 @@ object WriteMode {
       case "APPEND"          => WriteMode.APPEND
       case "ERROR_IF_EXISTS" => WriteMode.ERROR_IF_EXISTS
       case "IGNORE"          => WriteMode.IGNORE
+      case _ =>
+        throw new Exception(s"Invalid Write Mode try one of ${writes}")
     }
   }
 
@@ -73,6 +75,7 @@ object WriteMode {
 }
 
 class WriteDeserializer extends JsonDeserializer[WriteMode] {
+
   override def deserialize(jp: JsonParser, ctx: DeserializationContext): WriteMode = {
     val value = jp.readValueAs[String](classOf[String])
     WriteMode.fromString(value)

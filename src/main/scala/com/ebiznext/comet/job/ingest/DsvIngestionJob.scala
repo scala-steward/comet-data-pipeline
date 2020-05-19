@@ -130,11 +130,24 @@ class DsvIngestionJob(
           }
           df.drop(drop: _*)
         case Some(false) | None =>
-          df.toDF(
-            schema.attributes
-              .map(_.name)
-              .take(Math.min(df.columns.length, schema.attributes.length)): _*
-          )
+          /* No header, let's make sure we take the first attributes
+             if there are more in the CSV file
+           */
+          val compare = schema.attributes.length.compareTo(df.columns.length)
+          if (compare == 0) {
+            df.toDF(
+              schema.attributes
+                .map(_.name)
+                .take(schema.attributes.length): _*
+            )
+          } else if (compare > 0) {
+            val countMissing = schema.attributes.length - df.columns.length
+            throw new Exception(s"$countMissing columns in the input DataFrame ")
+          } else { // compare < 0
+            val cols = df.columns
+            df.select(cols.head, cols.tail.take(schema.attributes.length - 1): _*)
+              .toDF(schema.attributes.map(_.name): _*)
+          }
       }
       Success(resDF)
     } catch {
@@ -154,7 +167,8 @@ class DsvIngestionJob(
     def reorderAttributes(): List[Attribute] = {
       val attributesMap =
         this.schema.attributes.map(attr => (attr.name, attr)).toMap
-      dataset.columns.map(colName => attributesMap(colName)).toList
+      val cols = dataset.columns
+      cols.map(colName => attributesMap(colName)).toList
     }
 
     val orderedAttributes = reorderAttributes()
@@ -233,41 +247,42 @@ object DsvIngestionUtil {
   )(implicit settings: Settings): (RDD[String], RDD[Row]) = {
     val now = Timestamp.from(Instant.now)
     val checkedRDD: RDD[RowResult] = dataset.rdd.mapPartitions { partition =>
-      partition.map { row: Row =>
-        val rowCols = row.toSeq
-          .zip(attributes)
-          .map {
-            case (colValue, colAttribute) =>
-              (Option(colValue).getOrElse("").toString, colAttribute)
+        partition.map { row: Row =>
+          val rowValues: Seq[(String, Attribute)] = row.toSeq
+            .zip(attributes)
+            .map {
+              case (colValue, colAttribute) =>
+                (Option(colValue).getOrElse("").toString, colAttribute)
+            }
+          val rowCols = rowValues.zip(types)
+          val colMap = rowValues.map(__ => (__._2.name, __._1)).toMap
+          val validNumberOfColumns = attributes.length <= rowCols.length
+          if (!validNumberOfColumns) {
+            RowResult(
+              rowCols.map {
+                case ((colRawValue, colAttribute), tpe) =>
+                  ColResult(
+                    ColInfo(
+                      colRawValue,
+                      colAttribute.name,
+                      tpe.name,
+                      tpe.pattern,
+                      false
+                    ),
+                    null
+                  )
+              }.toList
+            )
+          } else {
+            RowResult(
+              rowCols.map {
+                case ((colRawValue, colAttribute), tpe) =>
+                  IngestionUtil.validateCol(colRawValue, colAttribute, tpe, colMap)
+              }.toList
+            )
           }
-          .zip(types)
-        val validNumberOfColumns = attributes.length <= rowCols.length
-        if (!validNumberOfColumns) {
-          RowResult(
-            rowCols.map {
-              case ((colRawValue, colAttribute), tpe) =>
-                ColResult(
-                  ColInfo(
-                    colRawValue,
-                    colAttribute.name,
-                    tpe.name,
-                    tpe.pattern,
-                    false
-                  ),
-                  null
-                )
-            }.toList
-          )
-        } else {
-          RowResult(
-            rowCols.map {
-              case ((colRawValue, colAttribute), tpe) =>
-                IngestionUtil.validateCol(colRawValue, colAttribute, tpe)
-            }.toList
-          )
         }
-      }
-    } cache ()
+      } persist (settings.comet.cacheStorageLevel)
 
     val rejectedRDD: RDD[String] = checkedRDD
       .filter(_.isRejected)

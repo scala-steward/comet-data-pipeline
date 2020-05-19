@@ -3,9 +3,8 @@ package com.ebiznext.comet
 import java.sql.{DriverManager, ResultSet, SQLException, Timestamp}
 import java.time.Instant
 
-import com.ebiznext.comet
 import com.ebiznext.comet.config.Settings
-import com.ebiznext.comet.job.ingest.{AuditLog, CatCountFreq, MetricRecord, RejectedRecord}
+import com.ebiznext.comet.job.ingest.{AuditLog, MetricRecord, RejectedRecord}
 import org.scalatest.Assertion
 
 import scala.annotation.tailrec
@@ -14,11 +13,14 @@ import scala.language.implicitConversions
 import scala.util.Random
 
 object ResultSetScala {
+
   case class ResultSetExtra(rs: ResultSet) extends AnyVal {
+
     private def getFooOption[T](columnIndex: Int, getFoo: Int => T): Option[T] = {
       val l = getFoo(columnIndex)
       if (rs.wasNull()) None else Some(l)
     }
+
     private def getFooOption[T](columnLabel: String, getFoo: String => T): Option[T] = {
       val l = getFoo(columnLabel)
       if (rs.wasNull()) None else Some(l)
@@ -112,18 +114,24 @@ trait JdbcChecks {
     private val FakeDuration = Random.nextInt(5000)
 
     override def standardize(item: AuditLog): AuditLog = {
-      item.copy(timestamp = TestStart, duration = FakeDuration) // We pretend the AuditLog entry has been generated exactly at TestStart.
+      item.copy(
+        timestamp = TestStart,
+        duration = FakeDuration
+      ) // We pretend the AuditLog entry has been generated exactly at TestStart.
     }
   }
 
   implicit object RejectedRecordStandardizer extends ItemStandardizer[RejectedRecord] {
+
     override def standardize(item: RejectedRecord): RejectedRecord = {
-      item.copy(timestamp = TestStart) // We pretend the RejectedRecord entry has been generated exactly at TestStart.
+      item.copy(timestamp =
+        TestStart
+      ) // We pretend the RejectedRecord entry has been generated exactly at TestStart.
     }
   }
 
-  protected def expectingRejections(jdbcName: String, values: RejectedRecord*)(
-    implicit settings: Settings
+  protected def expectingRejections(jdbcName: String, values: RejectedRecord*)(implicit
+    settings: Settings
   ): Assertion = {
     val testEnd: Timestamp = Timestamp.from(Instant.now)
 
@@ -150,8 +158,8 @@ trait JdbcChecks {
 
   }
 
-  protected def expectingAudit(jdbcName: String, values: AuditLog*)(
-    implicit settings: Settings
+  protected def expectingAudit(jdbcName: String, values: AuditLog*)(implicit
+    settings: Settings
   ): Assertion = {
     val testEnd: Timestamp = Timestamp.from(Instant.now)
 
@@ -184,8 +192,8 @@ trait JdbcChecks {
     }
   }
 
-  protected def expectingMetrics(jdbcName: String, values: MetricRecord*)(
-    implicit settings: Settings
+  protected def expectingMetrics(jdbcName: String, values: MetricRecord*)(implicit
+    settings: Settings
   ): Assertion = {
     val testEnd: Timestamp = Timestamp.from(Instant.now)
 
@@ -205,18 +213,18 @@ trait JdbcChecks {
         rs.getString("domain"),
         rs.getString("schema"),
         rs.getString("attribute"),
-        rs.getLongOption("min"),
-        rs.getLongOption("max"),
+        rs.getDoubleOption("min"),
+        rs.getDoubleOption("max"),
         rs.getDoubleOption("mean"),
         rs.getLongOption("missingValues"),
         rs.getDoubleOption("standardDev"),
         rs.getDoubleOption("variance"),
-        rs.getLongOption("sum"),
+        rs.getDoubleOption("sum"),
         rs.getDoubleOption("skewness"),
-        rs.getLongOption("kurtosis"),
-        rs.getLongOption("percentile25"),
-        rs.getLongOption("median"),
-        rs.getLongOption("percentile75"),
+        rs.getDoubleOption("kurtosis"),
+        rs.getDoubleOption("percentile25"),
+        rs.getDoubleOption("median"),
+        rs.getDoubleOption("percentile75"),
         rs.getLongOption("countDistinct"),
         rs.getStringOption("catCountFreq"),
         rs.getLongOption("missingValuesDiscrete"),
@@ -237,11 +245,13 @@ trait ItemStandardizer[T] {
 }
 
 trait ItemStandardizerLowPriority {
+
   implicit def identityStandardizer[T]: ItemStandardizer[T] =
     new ItemStandardizerLowPriority.IdentityStandardizer[T]()
 }
 
 object ItemStandardizerLowPriority {
+
   final class IdentityStandardizer[T]() extends ItemStandardizer[T] {
     override def standardize(value: T): T = value
   }

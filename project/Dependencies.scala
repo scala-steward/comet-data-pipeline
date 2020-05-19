@@ -21,9 +21,11 @@
 import sbt.{ExclusionRule, _}
 
 object Dependencies {
-  def scalaReflection(scalaVersion: String) = Seq(
-    "org.scala-lang" % "scala-reflect" % scalaVersion
-  )
+
+  def scalaReflection(scalaVersion: String) =
+    Seq(
+      "org.scala-lang" % "scala-reflect" % scalaVersion
+    )
 
   val jacksonExclusions = Seq(
     ExclusionRule(organization = "com.fasterxml.jackson.core"),
@@ -44,8 +46,6 @@ object Dependencies {
   )
 
   val typedConfigs = Seq("com.github.kxbmap" %% "configs" % Versions.configs)
-
-  val okhttp = Seq("com.squareup.okhttp3" % "okhttp" % Versions.okhttp)
 
   val jackson211 = Seq(
     "com.fasterxml.jackson.core" % "jackson-core" % Versions.jackson211,
@@ -68,7 +68,7 @@ object Dependencies {
     "org.apache.spark" %% "spark-sql" % Versions.spark211 % "provided",
     "org.apache.spark" %% "spark-hive" % Versions.spark211 % "provided",
     "org.apache.spark" %% "spark-mllib" % Versions.spark211 % "provided",
-    "com.google.cloud.spark" %% "spark-bigquery-with-dependencies" % "0.12.0-beta"
+    "com.google.cloud.spark" %% "spark-bigquery-with-dependencies" % "0.15.1-beta"
   )
 
   val spark211_240 = Seq(
@@ -92,14 +92,15 @@ object Dependencies {
     s"${Resolvers.googleCloudBigDataMavenRepo}/bigquery-connector/${Versions.hadoopbq}/bigquery-connector-${Versions.hadoopbq}-shaded.jar"
 
   val gcp = Seq(
-    "com.google.cloud.bigdataoss" % "gcs-connector-shaded" % s"${Versions.gcs}-shaded" from gcsConnectorShadedJar exclude ("javax.jms", "jms") exclude ("com.sun.jdmk", "jmxtools") exclude ("com.sun.jmx", "jmxri") excludeAll (jacksonExclusions: _*),
-    "com.google.cloud.bigdataoss" % "bigquery-connector-shaded" % s"${Versions.hadoopbq}-shaded" from gcpBigQueryConnectorShadedJar exclude ("javax.jms", "jms") exclude ("com.sun.jdmk", "jmxtools") exclude ("com.sun.jmx", "jmxri") excludeAll (jacksonExclusions: _*),
+    "com.google.cloud.bigdataoss" % "gcs-connector" % Versions.gcs from gcsConnectorShadedJar exclude ("javax.jms", "jms") exclude ("com.sun.jdmk", "jmxtools") exclude ("com.sun.jmx", "jmxri") excludeAll (jacksonExclusions: _*) classifier ("shaded"),
+    "com.google.cloud.bigdataoss" % "bigquery-connector" % Versions.hadoopbq from gcpBigQueryConnectorShadedJar exclude ("javax.jms", "jms") exclude ("com.sun.jdmk", "jmxtools") exclude ("com.sun.jmx", "jmxri") excludeAll (jacksonExclusions: _*) classifier ("shaded"),
     "com.google.cloud" % "google-cloud-bigquery" % Versions.bq exclude ("javax.jms", "jms") exclude ("com.sun.jdmk", "jmxtools") exclude ("com.sun.jmx", "jmxri") excludeAll (jacksonExclusions: _*),
-    "com.google.cloud.spark" %% "spark-bigquery-with-dependencies" % "0.12.0-beta"
+    "com.google.cloud.spark" %% "spark-bigquery-with-dependencies" % "0.15.1-beta"
   )
 
   val esHadoop = Seq(
-    "org.elasticsearch" % "elasticsearch-hadoop" % Versions.esHadoop
+    "org.elasticsearch" % "elasticsearch-hadoop" % Versions.esHadoop,
+    "pl.allegro.tech" % "embedded-elasticsearch" % "2.10.0" % "test"
   )
 
   val scopt = Seq(
@@ -122,7 +123,7 @@ object Dependencies {
 
   val azure = Seq(
     "org.apache.hadoop" % "hadoop-azure" % "3.2.1" % "provided" excludeAll (jacksonExclusions: _*),
-    "com.microsoft.azure" % "azure-storage" % "8.6.2" % "provided" excludeAll (jacksonExclusions: _*)
+    "com.microsoft.azure" % "azure-storage" % "8.6.4" % "provided" excludeAll (jacksonExclusions: _*)
   )
 
   val hadoop = Seq(
@@ -145,6 +146,7 @@ object Dependencies {
     "org.scalatra.scalate" %% "scalate-core" % Versions.scalate
   )
 
-  val dependencies = scalate ++ logging ++ typedConfigs ++ okhttp ++ betterfiles ++ scalaTest ++ scopt ++ hadoop ++ esHadoop ++
-  sttp ++ gcp ++ azure ++ h2 ++ excelClientApi // ++ atlas
+  val dependencies =
+    scalate ++ logging ++ typedConfigs ++ betterfiles ++ scalaTest ++ scopt ++ hadoop ++ esHadoop ++
+    sttp ++ gcp ++ azure ++ h2 ++ excelClientApi // ++ atlas
 }

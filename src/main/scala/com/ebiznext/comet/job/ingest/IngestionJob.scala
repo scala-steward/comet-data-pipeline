@@ -5,9 +5,9 @@ import java.time.Instant
 
 import com.ebiznext.comet.config.Settings.IndexSinkSettings
 import com.ebiznext.comet.config.{DatasetArea, Settings, StorageArea}
-import com.ebiznext.comet.job.bqload.{BigQueryLoadConfig, BigQueryLoadJob}
-import com.ebiznext.comet.job.index.{IndexConfig, IndexJob}
-import com.ebiznext.comet.job.jdbcload.{JdbcLoadConfig, JdbcLoadJob}
+import com.ebiznext.comet.job.index.bqload.{BigQueryLoadConfig, BigQueryLoadJob}
+import com.ebiznext.comet.job.index.esload.{ESLoadConfig, ESLoadJob}
+import com.ebiznext.comet.job.index.jdbcload.{JdbcLoadConfig, JdbcLoadJob}
 import com.ebiznext.comet.job.metrics.MetricsJob
 import com.ebiznext.comet.schema.handlers.{SchemaHandler, StorageHandler}
 import com.ebiznext.comet.schema.model.Rejection.{ColInfo, ColResult}
@@ -63,18 +63,14 @@ trait IngestionJob extends SparkJob {
   def ingest(dataset: DataFrame): (RDD[_], RDD[_])
 
   def saveRejected(rejectedRDD: RDD[String]): Try[Path] = {
-    logger.info(s"rejectedRDD SIZE ${rejectedRDD.count()}")
-    rejectedRDD.take(100).foreach(rejected => logger.info(rejected.replaceAll("\n", "|")))
-    val writeMode = WriteMode.APPEND
-    import session.implicits._
     logger.whenDebugEnabled {
-      rejectedRDD.toDF.show(100, false)
+      logger.debug(s"rejectedRDD SIZE ${rejectedRDD.count()}")
+      rejectedRDD.take(100).foreach(rejected => logger.debug(rejected.replaceAll("\n", "|")))
     }
     val domainName = domain.name
     val schemaName = schema.name
-    IngestionUtil.saveRejected(session, rejectedRDD, domainName, schemaName.toString, now) match {
+    IngestionUtil.indexRejected(session, rejectedRDD, domainName, schemaName.toString, now) match {
       case Success((rejectedDF, rejectedPath)) =>
-        (rejectedDF, rejectedPath)
         saveRows(rejectedDF, rejectedPath, WriteMode.APPEND, StorageArea.rejected, false)
         Success(rejectedPath)
       case Failure(exception) =>
@@ -107,21 +103,22 @@ trait IngestionJob extends SparkJob {
     val writeMode = getWriteMode()
     val acceptedPath = new Path(DatasetArea.accepted(domain.name), schema.name)
     val mergedDF = schema.merge.map { mergeOptions =>
-      if (storageHandler.exists(new Path(acceptedPath, "_SUCCESS"))) {
-        val existingDF = session.read.parquet(acceptedPath.toString)
-        merge(acceptedDF, existingDF, mergeOptions)
-      } else
-        acceptedDF
-    } getOrElse (acceptedDF)
+        if (storageHandler.exists(new Path(acceptedPath, "_SUCCESS"))) {
+          val existingDF = session.read.parquet(acceptedPath.toString)
+          merge(acceptedDF, existingDF, mergeOptions)
+        } else
+          acceptedDF
+      } getOrElse acceptedDF
 
-    saveRows(mergedDF, acceptedPath, writeMode, StorageArea.accepted, schema.merge.isDefined)
+    val savedDataset =
+      saveRows(mergedDF, acceptedPath, writeMode, StorageArea.accepted, schema.merge.isDefined)
 
     if (settings.comet.metrics.active) {
       new MetricsJob(this.domain, this.schema, Stage.GLOBAL, storageHandler, schemaHandler)
         .run()
         .get
     }
-    (mergedDF, acceptedPath)
+    (savedDataset, acceptedPath)
   }
 
   def index(mergedDF: DataFrame): Unit = {
@@ -129,14 +126,16 @@ trait IngestionJob extends SparkJob {
     meta.getIndexSink() match {
       case Some(IndexSink.ES) if settings.comet.elasticsearch.active =>
         val properties = meta.properties
-        val config = IndexConfig(
+        val config = ESLoadConfig(
           timestamp = properties.flatMap(_.get("timestamp")),
           id = properties.flatMap(_.get("id")),
           format = "parquet",
           domain = domain.name,
           schema = schema.name
         )
-        new IndexJob(config, storageHandler, schemaHandler).run()
+        new ESLoadJob(config, storageHandler, schemaHandler).run()
+      case Some(IndexSink.ES) if !settings.comet.elasticsearch.active =>
+        logger.warn("Indexing to ES requested but elasticsearch not active in conf file")
       case Some(IndexSink.BQ) =>
         val (createDisposition: String, writeDisposition: String) = Utils.getDBDisposition(
           meta.getWriteMode()
@@ -230,13 +229,13 @@ trait IngestionJob extends SparkJob {
         .select(partitionedInputDF.columns.map((col(_))): _*)
 
     val toDeleteDF = merge.timestamp.map { timestamp =>
-      val w = Window.partitionBy(merge.key.head, merge.key.tail: _*).orderBy(col(timestamp).desc)
-      import org.apache.spark.sql.functions.row_number
-      commonDF
-        .withColumn("rownum", row_number.over(w))
-        .where(col("rownum") =!= 1)
-        .drop("rownum")
-    } getOrElse (commonDF)
+        val w = Window.partitionBy(merge.key.head, merge.key.tail: _*).orderBy(col(timestamp).desc)
+        import org.apache.spark.sql.functions.row_number
+        commonDF
+          .withColumn("rownum", row_number.over(w))
+          .where(col("rownum") =!= 1)
+          .drop("rownum")
+      } getOrElse commonDF
 
     val updatesDF = merge.delete
       .map(condition => partitionedInputDF.filter(s"not ($condition)"))
@@ -266,17 +265,13 @@ trait IngestionJob extends SparkJob {
     writeMode: WriteMode,
     area: StorageArea,
     merge: Boolean
-  ): (DataFrameWriter[Row], String) = {
+  ): DataFrame = {
     if (dataset.columns.length > 0) {
-      val count = dataset.count()
       val saveMode = writeMode.toSaveMode
       val hiveDB = StorageArea.area(domain.name, area)
       val tableName = schema.name
       val fullTableName = s"$hiveDB.$tableName"
       if (settings.comet.hive) {
-        logger.info(
-          s"DSV Output $count records to Hive table $hiveDB/$tableName($saveMode) at $targetPath"
-        )
         val dbComment = domain.comment.getOrElse("")
         session.sql(s"create database if not exists $hiveDB comment '$dbComment'")
         session.sql(s"use $hiveDB")
@@ -297,11 +292,13 @@ trait IngestionJob extends SparkJob {
           dataset.rdd.getNumPartitions
         case fraction if fraction > 0.0 && fraction < 1.0 =>
           // Use sample to determine partitioning
-
+          val count = dataset.count()
           val minFraction =
             if (fraction * count >= 1) // Make sure we get at least on item in teh dataset
               fraction
-            else if (count > 0) // We make sure we get at least 1 item which is 2 because of double imprecision for huge numbers.
+            else if (
+              count > 0
+            ) // We make sure we get at least 1 item which is 2 because of double imprecision for huge numbers.
               2 / count
             else
               0
@@ -320,28 +317,46 @@ trait IngestionJob extends SparkJob {
           count.toInt
       }
 
-      val partitionedDF =
-        partitionedDatasetWriter(dataset.coalesce(nbPartitions), metadata.getPartitionAttributes())
+      // No need to apply partition on rejected dF
+      val partitionedDFWriter =
+        if (
+          area == StorageArea.rejected && !metadata
+            .getPartitionAttributes()
+            .forall(Metadata.CometPartitionColumns.contains(_))
+        )
+          partitionedDatasetWriter(dataset.coalesce(nbPartitions), Nil)
+        else
+          partitionedDatasetWriter(
+            dataset.coalesce(nbPartitions),
+            metadata.getPartitionAttributes()
+          )
 
       val mergePath = s"${targetPath.toString}.merge"
-      val targetDataset = if (merge && area != StorageArea.rejected) {
-        partitionedDF
+      val (targetDatasetWriter, finalDataset) = if (merge && area != StorageArea.rejected) {
+        logger.info(s"Saving Dataset to merge location $mergePath")
+        partitionedDFWriter
           .mode(SaveMode.Overwrite)
           .format(settings.comet.writeFormat)
           .option("path", mergePath)
           .save()
-        partitionedDatasetWriter(
-          session.read.parquet(mergePath.toString),
-          metadata.getPartitionAttributes()
+        logger.info(s"reading Dataset from merge location $mergePath")
+        val mergedDataset = session.read.parquet(mergePath)
+        (
+          partitionedDatasetWriter(
+            mergedDataset,
+            metadata.getPartitionAttributes()
+          ),
+          mergedDataset
         )
       } else
-        partitionedDF
-      val targetDatasetWriter = targetDataset
+        (partitionedDFWriter, dataset)
+      val finalTargetDatasetWriter = targetDatasetWriter
         .mode(saveMode)
         .format(settings.comet.writeFormat)
         .option("path", targetPath.toString)
+      logger.info(s"Saving Dataset to final location $targetPath")
       if (settings.comet.hive) {
-        targetDatasetWriter.saveAsTable(fullTableName)
+        finalTargetDatasetWriter.saveAsTable(fullTableName)
         val tableComment = schema.comment.getOrElse("")
         session.sql(s"ALTER TABLE $fullTableName SET TBLPROPERTIES ('comment' = '$tableComment')")
         if (settings.comet.analyze) {
@@ -360,16 +375,15 @@ trait IngestionJob extends SparkJob {
             }
         }
       } else {
-        targetDatasetWriter.save()
+        finalTargetDatasetWriter.save()
       }
-      logger.info(s"Saved ${dataset.count()} rows to $targetPath")
       storageHandler.delete(new Path(mergePath))
       if (merge && area != StorageArea.rejected)
         logger.info(s"deleted merge file $mergePath")
-      (targetDataset, mergePath)
+      finalDataset
     } else {
       logger.warn("Empty dataset with no columns won't be saved")
-      (null, null)
+      session.emptyDataFrame
     }
   }
 
@@ -453,6 +467,7 @@ object IngestionUtil {
     ("path", LegacySQLTypeName.STRING, StringType)
   )
   import com.google.cloud.bigquery.{Schema => BQSchema}
+
   private def bigqueryRejectedSchema(): BQSchema = {
     val fields = rejectedCols map { attribute =>
       Field
@@ -464,7 +479,7 @@ object IngestionUtil {
     BQSchema.of(fields: _*)
   }
 
-  def saveRejected(
+  def indexRejected(
     session: SparkSession,
     rejectedRDD: RDD[String],
     domainName: String,
@@ -488,36 +503,37 @@ object IngestionUtil {
       .toDF(rejectedCols.map(_._1): _*)
       .limit(settings.comet.audit.maxErrors)
 
-    val res = settings.comet.audit.index match {
-      case IndexSinkSettings.BigQuery(dataset) =>
-        val bqConfig = BigQueryLoadConfig(
-          Right(rejectedDF),
-          outputDataset = dataset,
-          outputTable = "rejected",
-          None,
-          "parquet",
-          "CREATE_IF_NEEDED",
-          "WRITE_APPEND",
-          None,
-          None
-        )
-        new BigQueryLoadJob(bqConfig, Some(bigqueryRejectedSchema())).run()
+    val res =
+      settings.comet.audit.index match {
+        case IndexSinkSettings.BigQuery(dataset) =>
+          val bqConfig = BigQueryLoadConfig(
+            Right(rejectedDF),
+            outputDataset = dataset,
+            outputTable = "rejected",
+            None,
+            "parquet",
+            "CREATE_IF_NEEDED",
+            "WRITE_APPEND",
+            None,
+            None
+          )
+          new BigQueryLoadJob(bqConfig, Some(bigqueryRejectedSchema())).run()
 
-      case IndexSinkSettings.Jdbc(jdbcName, partitions, batchSize) =>
-        val jdbcConfig = JdbcLoadConfig.fromComet(
-          jdbcName,
-          settings.comet,
-          Right(rejectedDF),
-          "rejected",
-          partitions = partitions,
-          batchSize = batchSize
-        )
+        case IndexSinkSettings.Jdbc(jdbcName, partitions, batchSize) =>
+          val jdbcConfig = JdbcLoadConfig.fromComet(
+            jdbcName,
+            settings.comet,
+            Right(rejectedDF),
+            "rejected",
+            partitions = partitions,
+            batchSize = batchSize
+          )
 
-        new JdbcLoadJob(jdbcConfig).run()
+          new JdbcLoadJob(jdbcConfig).run()
 
-      case IndexSinkSettings.None =>
-        Success(())
-    }
+        case IndexSinkSettings.None =>
+          Success(())
+      }
     res match {
       case Success(_) => Success(rejectedDF, rejectedPath)
       case Failure(e) => Failure(e)
@@ -527,33 +543,33 @@ object IngestionUtil {
   def validateCol(
     colRawValue: String,
     colAttribute: Attribute,
-    tpe: Type
+    tpe: Type,
+    colMap: Map[String, String]
   )(
     implicit /* TODO: make me explicit. Avoid rebuilding the PrivacyLevel(settings) at each invocation? */ settings: Settings
   ): ColResult = {
     def ltrim(s: String) = s.replaceAll("^\\s+", "")
     def rtrim(s: String) = s.replaceAll("\\s+$", "")
-    val trimmedColValue = colAttribute.position.map { position =>
-      position.trim match {
-        case Some(LEFT)  => ltrim(colRawValue)
-        case Some(RIGHT) => rtrim(colRawValue)
-        case Some(BOTH)  => colRawValue.trim()
-        case _           => colRawValue
-      }
-    } getOrElse (colRawValue)
+
+    val trimmedColValue = colAttribute.trim match {
+      case Some(LEFT)  => ltrim(colRawValue)
+      case Some(RIGHT) => rtrim(colRawValue)
+      case Some(BOTH)  => colRawValue.trim()
+      case _           => colRawValue
+    }
 
     val colValue =
       if (trimmedColValue.length == 0) colAttribute.default.getOrElse("")
       else trimmedColValue
 
-    val optionalColIsEmpty = !colAttribute.required && colValue.isEmpty
-    val colPatternIsValid = tpe.matches(colValue)
+    def optionalColIsEmpty = !colAttribute.required && colValue.isEmpty
+    def colPatternIsValid = tpe.matches(colValue)
     val privacyLevel = colAttribute.getPrivacy()
     val privacy =
       if (privacyLevel == PrivacyLevel.None)
         colValue
       else
-        privacyLevel.encrypt(colValue)
+        privacyLevel.crypt(colValue, colMap)
     val colPatternOK = optionalColIsEmpty || colPatternIsValid
     val (sparkValue, colParseOK) =
       if (colPatternOK) {

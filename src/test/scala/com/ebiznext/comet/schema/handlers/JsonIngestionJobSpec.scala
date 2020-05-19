@@ -20,18 +20,10 @@
 
 package com.ebiznext.comet.schema.handlers
 
-import java.sql.{DriverManager, SQLException}
-
 import com.ebiznext.comet.config.Settings
-import com.ebiznext.comet.{JdbcChecks, TestHelper}
 import com.ebiznext.comet.job.ingest.{AuditLog, MetricRecord, RejectedRecord}
+import com.ebiznext.comet.{JdbcChecks, TestHelper}
 import com.typesafe.config.{Config, ConfigFactory}
-import org.apache.spark.sql.execution.datasources.json.JsonIngestionUtil
-import org.apache.spark.sql.types._
-import org.scalatest.Assertion
-
-import scala.annotation.tailrec
-import scala.util.Success
 
 abstract class JsonIngestionJobSpecBase(variant: String) extends TestHelper with JdbcChecks {
 
@@ -41,7 +33,7 @@ abstract class JsonIngestionJobSpecBase(variant: String) extends TestHelper with
 
   def configuration: Config
 
-  ("Ingest Complex JSON " + variant) should ("should be ingested from pending to accepted, and archived ") in {
+  ("Ingest Complex JSON " + variant) should "should be ingested from pending to accepted, and archived " in {
     new WithSettings(configuration) {
 
       new SpecTrait(
@@ -57,7 +49,9 @@ abstract class JsonIngestionJobSpecBase(variant: String) extends TestHelper with
         loadPending
 
         // Check archive
-        readFileContent(cometDatasetsPath + s"/archive/${datasetDomainName}/complex.json") shouldBe loadFile(
+        readFileContent(
+          cometDatasetsPath + s"/archive/${datasetDomainName}/complex.json"
+        ) shouldBe loadTextFile(
           "/sample/json/complex.json"
         )
 
@@ -83,6 +77,7 @@ abstract class JsonIngestionJobSpecBase(variant: String) extends TestHelper with
 
 class JsonIngestionJobNoIndexNoMetricsNoAuditSpec
     extends JsonIngestionJobSpecBase("No Index, No Metrics, No Audit") {
+
   override def configuration: Config =
     ConfigFactory
       .parseString("""
