@@ -23,17 +23,17 @@ package com.ebiznext.comet.workflow
 import better.files.File
 import com.ebiznext.comet.config.{DatasetArea, Settings}
 import com.ebiznext.comet.job.atlas.{AtlasConfig, AtlasJob}
-import com.ebiznext.comet.job.bqload.{BigQueryLoadConfig, BigQueryLoadJob}
-import com.ebiznext.comet.job.index.{IndexConfig, IndexJob}
+import com.ebiznext.comet.job.index.bqload.{BigQueryLoadConfig, BigQueryLoadJob}
+import com.ebiznext.comet.job.index.esload.{ESLoadConfig, ESLoadJob}
 import com.ebiznext.comet.job.infer.{InferSchema, InferSchemaConfig}
 import com.ebiznext.comet.job.ingest._
-import com.ebiznext.comet.job.jdbcload.{JdbcLoadConfig, JdbcLoadJob}
+import com.ebiznext.comet.job.index.jdbcload.{JdbcLoadConfig, JdbcLoadJob}
 import com.ebiznext.comet.job.metrics.{MetricsConfig, MetricsJob}
 import com.ebiznext.comet.job.transform.AutoTask
 import com.ebiznext.comet.schema.handlers.{LaunchHandler, SchemaHandler, StorageHandler}
 import com.ebiznext.comet.schema.model.Format._
 import com.ebiznext.comet.schema.model._
-import com.ebiznext.comet.utils.Utils
+import com.ebiznext.comet.utils.{Unpacker, Utils}
 import com.google.cloud.bigquery.{Schema => BQSchema}
 import com.typesafe.scalalogging.StrictLogging
 import org.apache.hadoop.fs.Path
@@ -98,23 +98,26 @@ class IngestionWorkflow(
             storageHandler.move(file, tmpFile)
           }
         } else if (storageHandler.fs.getScheme() == "file") {
+          storageHandler.mkdirs(tmpDir)
           val tgz = new Path(prefixStr + ".tgz")
           val gz = new Path(prefixStr + ".gz")
           val zip = new Path(prefixStr + ".zip")
+          val tmpFile = Path.getPathWithoutSchemeAndAuthority(tmpDir).toString
           if (storageHandler.exists(gz)) {
             logger.info(s"Found compressed file $gz")
+
             File(Path.getPathWithoutSchemeAndAuthority(gz).toString)
-              .unGzipTo(File(tmpDir.toString))
+              .unGzipTo(File(tmpFile, File(prefixStr).name))
             storageHandler.delete(gz)
           } else if (storageHandler.exists(tgz)) {
             logger.info(s"Found compressed file $tgz")
-            File(Path.getPathWithoutSchemeAndAuthority(tgz).toString)
-              .unGzipTo(File(tmpDir.toString))
+            Unpacker
+              .unpack(File(Path.getPathWithoutSchemeAndAuthority(tgz).toString), File(tmpFile))
             storageHandler.delete(tgz)
           } else if (storageHandler.exists(zip)) {
             logger.info(s"Found compressed file $zip")
             File(Path.getPathWithoutSchemeAndAuthority(zip).toString)
-              .unzipTo(File(tmpDir.toString))
+              .unzipTo(File(tmpFile))
             storageHandler.delete(zip)
           } else {
             logger.error(s"No archive found for ack ${ackFile.toString}")
@@ -329,7 +332,7 @@ class IngestionWorkflow(
     val properties = task.properties
     launchHandler.index(
       this,
-      IndexConfig(
+      ESLoadConfig(
         timestamp = properties.flatMap(_.get("timestamp")),
         id = properties.flatMap(_.get("id")),
         format = "parquet",
@@ -419,8 +422,8 @@ class IngestionWorkflow(
     }
   }
 
-  def index(config: IndexConfig): Try[SparkSession] = {
-    new IndexJob(config, storageHandler, schemaHandler).run()
+  def index(config: ESLoadConfig): Try[SparkSession] = {
+    new ESLoadJob(config, storageHandler, schemaHandler).run()
   }
 
   def bqload(
