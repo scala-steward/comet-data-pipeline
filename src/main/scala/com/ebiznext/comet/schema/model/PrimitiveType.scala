@@ -21,7 +21,7 @@
 package com.ebiznext.comet.schema.model
 
 import java.sql.Timestamp
-import java.text.NumberFormat
+import java.text.{DecimalFormat, NumberFormat}
 import java.time._
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAccessor
@@ -122,7 +122,10 @@ object PrimitiveType {
       else {
         val locale = zone.split('_')
         val currentLocale: Locale = new Locale(locale(0), locale(1))
-        val numberFormatter = NumberFormat.getNumberInstance(currentLocale)
+        val numberFormatter =
+          NumberFormat.getNumberInstance(currentLocale).asInstanceOf[DecimalFormat]
+        if (str.head == '+')
+          numberFormatter.setPositivePrefix("+")
         numberFormatter.parse(str).doubleValue()
       }
     }

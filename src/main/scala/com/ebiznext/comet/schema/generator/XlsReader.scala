@@ -66,13 +66,17 @@ class XlsReader(path: String) {
           .map(formatter.formatCellValue)
         val identityKeysOpt = Option(row.getCell(8, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL))
           .map(formatter.formatCellValue)
+        val comment = Option(row.getCell(9, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL))
+          .map(formatter.formatCellValue)
+        val encodingOpt = Option(row.getCell(10, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL))
+          .map(formatter.formatCellValue)
 
         (nameOpt, patternOpt) match {
           case (Some(name), Some(pattern)) => {
             val metaData = Metadata(
               mode,
               format,
-              encoding = None,
+              encoding = encodingOpt,
               multiline = None,
               array = None,
               withHeader,
@@ -90,6 +94,10 @@ class XlsReader(path: String) {
                     timestamp = Some(deltaCol)
                   )
                 )
+              case (None, Some(identityKeys)) =>
+                Some(
+                  MergeOptions(key = identityKeys.split(",").toList.map(_.trim))
+                )
               case _ => None
             }
             Some(
@@ -99,7 +107,7 @@ class XlsReader(path: String) {
                 attributes = Nil,
                 Some(metaData),
                 mergeOptions,
-                None,
+                comment,
                 None,
                 None
               )

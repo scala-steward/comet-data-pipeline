@@ -136,6 +136,7 @@ trait NumericRandomPrivacy extends PrivacyEngine {
   val rnd: Random
   final def gen(low: Double, up: Double): Double = low + (up - low) * rnd.nextDouble()
   def genUnbounded(): Double
+
   final def crypt(params: List[Any]): Double = {
     assert(params.length == 2 || params.isEmpty)
     params match {
@@ -145,6 +146,7 @@ trait NumericRandomPrivacy extends PrivacyEngine {
         val low = lowerBound.asInstanceOf[Int].toDouble
         val up = upperBound.asInstanceOf[Int].toDouble
         gen(low, up)
+      case _ => throw new Exception("Should never happen!")
     }
   }
 }
@@ -152,6 +154,7 @@ trait NumericRandomPrivacy extends PrivacyEngine {
 object RandomDouble extends NumericRandomPrivacy {
   val rnd = new Random()
   def genUnbounded(): Double = rnd.nextDouble()
+
   override def crypt(s: String, colMap: Map[String, String], params: List[Any]): String = {
     crypt(params).toString
   }
@@ -160,6 +163,7 @@ object RandomDouble extends NumericRandomPrivacy {
 object RandomLong extends NumericRandomPrivacy {
   val rnd = new Random()
   override def genUnbounded(): Double = rnd.nextLong().toDouble
+
   override def crypt(s: String, colMap: Map[String, String], params: List[Any]): String =
     (crypt(params) % Long.MaxValue).toLong.toString
 }
@@ -167,6 +171,7 @@ object RandomLong extends NumericRandomPrivacy {
 object RandomInt extends NumericRandomPrivacy {
   val rnd = new Random()
   override def genUnbounded(): Double = rnd.nextInt().toDouble
+
   override def crypt(s: String, colMap: Map[String, String], params: List[Any]): String =
     (crypt(params) % Int.MaxValue).toInt.toString
 }

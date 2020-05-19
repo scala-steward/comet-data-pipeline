@@ -37,7 +37,10 @@ object Common {
       addCommandAlias("cc", ";clean;compile"), // clean and compile
       addCommandAlias("pl", ";clean;publishLocal"), // clean and publish locally
       addCommandAlias("pr", ";clean;publish"), // clean and publish globally
-      addCommandAlias("pld", ";clean;local:publishLocal;dockerComposeUp") // clean and publish/launch the docker environment
+      addCommandAlias(
+        "pld",
+        ";clean;local:publishLocal;dockerComposeUp"
+      ) // clean and publish/launch the docker environment
     ).flatten
 
   def cometPlugins: Seq[AutoPlugin] = Seq(
@@ -76,8 +79,12 @@ object Common {
   def customSettings: Seq[Def.Setting[_]] =
     Seq(
       scalacOptions ++= Seq(
-        "-Xmacro-settings:materialize-derivations"
-      ),
+          "-deprecation",
+          "-feature",
+          "-Xmacro-settings:materialize-derivations",
+          "-Ywarn-unused-import",
+          "-Xfatal-warnings"
+        ),
       testOptions in Test ++= Seq(
         // show full stack traces and test case durations
         Tests.Argument("-oDF"),
@@ -97,10 +104,9 @@ object Versions {
   val spark211 = "2.1.0"
   val spark211_240 = "2.4.5"
   val spark212 = "2.4.5"
-  val scalatest = "3.1.1"
+  val scalatest = "3.1.2"
   val springBoot = "2.0.6.RELEASE"
   val typesafeConfig = "1.2.1"
-  val okhttp = "4.5.0"
   val scalaLogging = "3.9.2"
   val logback = "1.2.3"
   val slf4j = "1.7.21"
@@ -108,16 +114,16 @@ object Versions {
   val jets3t = "0.9.3"
   val hive = "3.1.0"
   val log4s = "1.3.3"
-  val betterFiles = "3.8.0"
-  val jackson211 = "2.11.0"
+  val betterFiles = "3.9.1"
+  val jackson211 = "2.7.9"
   val jackson212 = "2.9.10"
   val configs = "0.4.4"
-  val esHadoop = "7.6.2"
+  val esHadoop = "7.7.0"
   val scopt = "4.0.0-RC2"
   val sttp = "1.7.2"
-  val gcs = "hadoop3-2.0.1"
+  val gcs = "hadoop3-2.1.3"
   val hadoopbq = "hadoop3-1.0.0"
-  val bq = "1.103.0"
+  val bq = "1.114.0"
   val hadoop = "3.2.0"
   val h2 = "1.4.200" // Test only
   val poi = "4.1.2"
