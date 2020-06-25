@@ -115,7 +115,7 @@ object Versions {
   val hive = "3.1.0"
   val log4s = "1.3.3"
   val betterFiles = "3.9.1"
-  val jackson211 = "2.7.9"
+  val jackson211 = "2.11.1"
   val jackson212 = "2.9.10"
   val configs = "0.4.4"
   val esHadoop = "7.8.0"
