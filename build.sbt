@@ -13,12 +13,11 @@ initialize := {
     sys.error("Java 1.8 is required for this project. Found " + javaVersion + " instead")
 }
 
-
 lazy val scala212 = "2.12.12"
 
 lazy val scala211 = "2.11.12"
 
-crossScalaVersions :=  List(scala211, scala212)
+crossScalaVersions := List(scala211, scala212)
 
 organization := "com.ebiznext"
 
@@ -33,7 +32,7 @@ libraryDependencies ++= {
     CrossVersion.partialVersion(scalaVersion.value) match {
       case Some((2, 12)) => (spark_3d0_forScala_2d12, jackson212ForSpark3, esSpark212)
       case Some((2, 11)) => (spark_2d4_forScala_2d11, jackson211ForSpark2, esSpark211)
-      case _   => throw new Exception(s"Invalid Scala Version")
+      case _             => throw new Exception(s"Invalid Scala Version")
     }
   }
   dependencies ++ spark ++ jackson ++ esSpark ++ scalaReflection(scalaVersion.value)
@@ -44,14 +43,13 @@ name := {
     CrossVersion.partialVersion(scalaVersion.value) match {
       case Some((2, 12)) => "3"
       case Some((2, 11)) => "2"
-      case _   => throw new Exception(s"Invalid Scala Version")
+      case _             => throw new Exception(s"Invalid Scala Version")
     }
   }
   s"comet-spark$sparkNameSuffix"
 }
 
 assembly / assemblyJarName := s"${name.value}_${scalaBinaryVersion.value}-${version.value}-assembly.jar"
-
 
 /*
 artifactName := { (sv: ScalaVersion, module: ModuleID, artifact: Artifact) =>
@@ -85,10 +83,9 @@ Compile / assembly / artifact := {
 addArtifact(Compile / assembly / artifact, assembly)
 
 assembly / assemblyMergeStrategy := {
-  case PathList("META-INF", _ @ _*) => MergeStrategy.discard
-  case "reference.conf"              => MergeStrategy.concat
-  case _
-  => MergeStrategy.first
+  case PathList("META-INF", _ @_*) => MergeStrategy.discard
+  case "reference.conf"            => MergeStrategy.concat
+  case _                           => MergeStrategy.first
 }
 
 // Required by the Test container framework
@@ -109,15 +106,10 @@ assembly / assemblyShadeRules := Seq(
 )
 
 // Publish
-publishTo  := {
+publishTo := {
   sys.env.get("GCS_BUCKET_ARTEFACTS") match {
-    case None        =>
-      if (isSnapshot.value)
-        Some("Sonatype Snapshots Nexus" at "https://oss.sonatype.org/content/repositories/snapshots")
-      else
-        sonatypePublishToBundle.value
-
-
+    case None =>
+      sonatypePublishToBundle.value
     case Some(value) => Some(GCSPublisher.forBucket(value, AccessRights.InheritBucket))
   }
 }
@@ -128,12 +120,13 @@ sonatypeProfileName := "com.ebiznext"
 publishMavenStyle := true
 
 // Open-source license of your choice
-licenses := Seq("Apache License, Version 2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.html"))
+licenses := Seq(
+  "Apache License, Version 2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.html")
+)
 
 sonatypeProjectHosting := Some(
   GitHubHosting("ebiznext", "comet-data-pipeline", "hayssam@saleh.fr")
 )
-
 
 // Release
 releaseCrossBuild := false
@@ -144,7 +137,6 @@ releaseProcess := Seq(
   checkSnapshotDependencies,
   inquireVersions,
   runClean,
-  releaseStepCommand("+test"),
   setReleaseVersion,
   commitReleaseVersion, // forces to push dirty files
   tagRelease,
