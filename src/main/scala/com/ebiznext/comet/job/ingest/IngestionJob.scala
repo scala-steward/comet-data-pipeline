@@ -8,6 +8,7 @@ import com.ebiznext.comet.job.ingest.ImprovedDataFrameContext._
 import com.ebiznext.comet.job.metrics.{AssertionJob, MetricsJob}
 import com.ebiznext.comet.job.validator.GenericRowValidator
 import com.ebiznext.comet.schema.handlers.{SchemaHandler, StorageHandler}
+import com.ebiznext.comet.schema.model.PrimitiveType.timestamp
 import com.ebiznext.comet.schema.model.Rejection.{ColInfo, ColResult}
 import com.ebiznext.comet.schema.model.Trim.{BOTH, LEFT, RIGHT}
 import com.ebiznext.comet.schema.model._
@@ -113,7 +114,7 @@ trait IngestionJob extends SparkJob {
           )
         } else {
           settings.comet.audit.sink match {
-            case _: NoneSink | FsSink(_, _) =>
+            case _: NoneSink | FsSink(_, _, _, _) =>
               sinkToFile(
                 rejectedDF,
                 rejectedPath,
@@ -169,8 +170,25 @@ trait IngestionJob extends SparkJob {
       .map(_ => WriteMode.OVERWRITE)
       .getOrElse(metadata.getWrite())
 
+  lazy val (format, extension) = metadata.sink
+    .map {
+      case sink: FsSink =>
+        (sink.format.getOrElse(""), sink.extension.getOrElse(""))
+      case _ =>
+        ("", "")
+    }
+    .getOrElse(("", ""))
+
   private def csvOutput(): Boolean =
-    settings.comet.csvOutput && !settings.comet.grouped && metadata.partition.isEmpty && path.nonEmpty
+    (settings.comet.csvOutput || format == "csv") &&
+    !settings.comet.grouped &&
+    metadata.partition.isEmpty && path.nonEmpty
+
+  private def csvOutputExtension(): String =
+    if (settings.comet.csvOutputExt.nonEmpty)
+      settings.comet.csvOutputExt
+    else
+      extension
 
   private def runAssertions(acceptedDF: DataFrame) = {
     if (settings.comet.assertions.active) {
@@ -195,12 +213,27 @@ trait IngestionJob extends SparkJob {
     }
   }
 
+  private def dfWithAttributesRenamed(acceptedDF: DataFrame): DataFrame = {
+    val renamedAttributes = schema.renamedAttributes().toMap
+    logger.whenInfoEnabled {
+      renamedAttributes.foreach { case (name, rename) =>
+        logger.info(s"renaming column $name to $rename")
+      }
+    }
+    val finalDF =
+      renamedAttributes.foldLeft(acceptedDF) { case (acc, (name, rename)) =>
+        acc.withColumnRenamed(existingName = name, newName = rename)
+      }
+    finalDF
+  }
+
   /** Merge new and existing dataset if required
     * Save using overwrite / Append mode
     *
     * @param acceptedDF
     */
-  protected def saveAccepted(acceptedDF: DataFrame): (DataFrame, Path) = {
+  protected def saveAccepted(dataframe: DataFrame): (DataFrame, Path) = {
+    val acceptedDF = dfWithAttributesRenamed(dataframe)
     val start = Timestamp.from(Instant.now())
     logger.whenDebugEnabled {
       logger.debug(s"acceptedRDD SIZE ${acceptedDF.count()}")
@@ -551,11 +584,7 @@ trait IngestionJob extends SparkJob {
 
       // No need to apply partition on rejected dF
       val partitionedDFWriter =
-        if (
-          area == StorageArea.rejected && !metadata
-            .getPartitionAttributes()
-            .forall(Metadata.CometPartitionColumns.contains(_))
-        )
+        if (area == StorageArea.rejected)
           partitionedDatasetWriter(dataset.coalesce(nbPartitions), Nil)
         else
           partitionedDatasetWriter(
@@ -583,7 +612,7 @@ trait IngestionJob extends SparkJob {
       } else
         (partitionedDFWriter, dataset)
       val finalTargetDatasetWriter =
-        if (csvOutput() && area != StorageArea.rejected)
+        if (csvOutput() && area != StorageArea.rejected) {
           targetDatasetWriter
             .mode(saveMode)
             .format("csv")
@@ -592,7 +621,7 @@ trait IngestionJob extends SparkJob {
             .option("header", metadata.withHeader.getOrElse(false))
             .option("delimiter", metadata.separator.getOrElse("µ"))
             .option("path", targetPath.toString)
-        else
+        } else
           targetDatasetWriter
             .mode(saveMode)
             .format(writeFormat)
@@ -630,10 +659,19 @@ trait IngestionJob extends SparkJob {
         .filterNot(path => schema.pattern.matcher(path.getName).matches())
       if (outputList.nonEmpty) {
         val csvPath = outputList.head
-        val finalCsvPath = new Path(
-          targetPath,
-          path.head.getName
-        )
+        val finalCsvPath =
+          if (csvOutputExtension().nonEmpty) {
+            // Explicitily set extension
+            val targetName = path.head.getName
+            val index = targetName.lastIndexOf('.')
+            val finalName = (if (index > 0) targetName.substring(0, index)
+                             else targetName) + csvOutputExtension()
+            new Path(targetPath, finalName)
+          } else
+            new Path(
+              targetPath,
+              path.head.getName
+            )
         storageHandler.move(csvPath, finalCsvPath)
       }
     }
@@ -1002,7 +1040,7 @@ object IngestionUtil {
         case _: EsSink =>
           // TODO Sink Rejected Log to ES
           throw new Exception("Sinking Audit log to Elasticsearch not yet supported")
-        case _: NoneSink | FsSink(_, _) =>
+        case _: NoneSink | FsSink(_, _, _, _) =>
           // We save in the caller
           // TODO rewrite this one
           Success(())
@@ -1036,7 +1074,8 @@ object IngestionUtil {
 
     val colValue = trimmedColValue.map { trimmedColValue =>
       if (trimmedColValue.isEmpty) colAttribute.default.getOrElse("")
-      else trimmedColValue
+      else
+        trimmedColValue
     }
 
     def colValueIsNullOrEmpty = colValue match {
